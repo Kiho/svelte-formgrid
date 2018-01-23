@@ -1,0 +1,62 @@
+{{#each rows as row}}
+<Row>
+    {{#each row.columns as col}}
+        {{#if col.subtitle}}
+            <div class="subtitle">{{col.subtitle}}</div>
+        {{else}}
+            <FormCol bind:source="item" settings="{{col}}" :edit :editable />
+        {{/if}}
+    {{/each}}
+</Row>
+{{/each}} 
+
+<script>
+import {
+    FormCol, 
+    Row,
+} from './';
+
+export default {
+    data() {
+        return {
+            edit: true,
+            item: {},
+            rows: [],
+            columns: [],
+        }
+    },
+    components:{
+        Row,
+        FormCol
+    },
+    oncreate(){
+        this.observe('item', (item) => { 
+            console.log('FormGrid - item', item);
+            this.set({ item });
+        }, {init: true, defer: true});
+        this.observe('columns', columns => {
+            const maxRowNum = Math.max.apply(Math, columns.map(o => o.row))
+            const rows = []; // Array(maxRowNum + 1).fill({});
+            for (let i = 0; i <= maxRowNum; i++) {
+                rows.push({ columns: [] });
+            }
+            for (let i = 0; i < columns.length; i++) {
+                rows[columns[i].row].columns.push(columns[i]);
+            }
+            this.set({ rows });
+
+        }, {init: true, defer: true});
+    }
+}
+</script>
+
+<style>
+    .subtitle {
+        margin-top: 0.5rem; 
+        margin-left: 1rem; 
+        font-size: 1rem;
+        font-weight: 600;
+        text-decoration: underline;
+        text-transform: uppercase;
+    }
+</style>

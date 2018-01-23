@@ -1,0 +1,64 @@
+<div class={{classes}}>
+    {{#if edit && source}}
+        <:Component { fieldtype } bind:value="source[settings.field]" label={{settings.label}} settings="{{settings}}"/>
+    {{elseif displayable}}
+        {{ source[settings.field] }}
+    {{/if}}
+</div>
+<script>
+    import Text from './Text.html';
+    // import Date from './Date.html';
+    // import Number from './Number.html';
+    // import Select from './Select.html';
+
+    export default {
+        data(){
+            return {
+                // edit: true,
+                editable: true,
+                source: {},
+            }
+        },
+        components:{
+            Text,
+            // Number,
+            // Date,
+            // Select
+        },
+        computed:{
+            classes: (settings) => {                
+                if (settings.col) {
+                    let cols = settings.col.split(' ');
+                    cols = cols.filter(x=> x && x.trim()).map(x=> 'col-' + x);
+                    return cols.join(' ').trim();
+                }
+                return '';
+            },
+            displayable: (source, settings) => {
+                return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
+            },
+            fieldtype: settings => {
+                let ft = Text;
+                if (settings.component) {
+                    switch (settings.component.toLowerCase()) {
+                        case 'text':
+                            ft = Text;
+                            break;
+                        // case 'number':
+                        //     ft = Number;
+                        //     break;
+                        // case 'date':
+                        //     ft = Date;
+                        //     break;
+                        // case 'select':
+                        //     ft = Select;
+                        //     break;
+                    }
+                }
+                return ft;
+            }
+        }
+    }
+</script>
+    
+    
