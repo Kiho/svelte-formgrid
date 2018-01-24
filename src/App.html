@@ -5,6 +5,13 @@
 <script>
 import FormGrid from './FormGrid.html';
 
+const stateList = [
+   {id: 'AL',name: 'AL'},
+   {id: 'MA',name: 'MA'},
+   {id: 'MO',name: 'MO'},
+   {id: 'RI',name: 'RI'}
+];
+
 var data = [
         {
             "id": 1,
@@ -65,8 +72,8 @@ export default {
                 }, {
                     label: 'State',
                     field: 'state',
-                    numeric: false,
-                    component: 'text',
+                    optionList: stateList,
+                    component: 'select',
                     row: 1,
                     col: 'md-3'
                 }

@@ -4,7 +4,7 @@
         {{#if col.subtitle}}
             <div class="subtitle">{{col.subtitle}}</div>
         {{else}}
-            <FormCol bind:source="item" settings="{{col}}" :edit :editable />
+            <FormCol bind:source="item" settings="{{col}}" :edit />
         {{/if}}
     {{/each}}
 </Row>
@@ -27,24 +27,19 @@ export default {
         Row,
         FormCol
     },
-    oncreate(){
-        this.observe('item', (item) => { 
-            console.log('FormGrid - item', item);
-            this.set({ item });
-        }, {init: true, defer: true});
-        this.observe('columns', columns => {
+    computed:{
+        rows: (columns) => {                
             const maxRowNum = Math.max.apply(Math, columns.map(o => o.row))
-            const rows = []; // Array(maxRowNum + 1).fill({});
+            const rows = [];
             for (let i = 0; i <= maxRowNum; i++) {
                 rows.push({ columns: [] });
             }
             for (let i = 0; i < columns.length; i++) {
                 rows[columns[i].row].columns.push(columns[i]);
             }
-            this.set({ rows });
-
-        }, {init: true, defer: true});
-    }
+            return rows;
+        },
+    },
 }
 </script>
 
