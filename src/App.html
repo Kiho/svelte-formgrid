@@ -1,12 +1,82 @@
-<p>This is a top-level element.</p>
-<FormGrid/>
+<div>
+    <FormGrid columns={{columndata}} bind:item="item"></FormGrid>
+</div>
 
 <script>
-	import FormGrid from './FormGrid.html';
+import FormGrid from './FormGrid.html';
 
-	export default {
-		components: {
-			FormGrid
-		}
-	};
+var data = [
+        {
+            "id": 1,
+            "fname": "Gale",
+            "lname": "Mcmyne",
+            "age": 16,
+            "state": "RI"
+        }, {
+            "id": 2,
+            "fname": "Tighe",
+            "lname": "Walls",
+            "age": 43,
+            "state": "AL"
+        }, {
+            "id": 3,
+            "fname": "Anuj",
+            "lname": "Wittcop",
+            "age": 16,
+            "state": "MO"
+        }, {
+            "id": 4,
+            "fname": "Elisha",
+            "lname": "Mahan",
+            "age": 28,
+            "state": "MA"
+        }
+    ];
+
+export default {
+    components: {
+        FormGrid,
+    },
+    data() {
+        return { 
+            item: data[0],
+            columndata: [
+                {
+                    label: 'First Name', // Column name
+                    field: 'fname', // Field name from row
+                    numeric: false, // Affects sorting
+                    component: 'text',
+                    row: 0,
+                    col: 'md-4'
+                }, {
+                    label: 'Last Name',
+                    field: 'lname',
+                    numeric: false,
+                    component: 'text',
+                    row: 0,
+                    col: 'md-3'
+                }, {
+                    label: 'Age',
+                    field: 'age',
+                    numeric: true,
+                    component: 'text',
+                    row: 1,
+                    col: 'md-4'
+                }, {
+                    label: 'State',
+                    field: 'state',
+                    numeric: false,
+                    component: 'text',
+                    row: 1,
+                    col: 'md-3'
+                }
+            ]                
+        }
+    },
+    oncreate () {
+        setTimeout(() => {
+            this.set({ item: data[1] });
+        }, 1000);
+    }
+}
 </script>

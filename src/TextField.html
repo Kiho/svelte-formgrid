@@ -1,0 +1,68 @@
+<div class="form-group row">
+    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <div class="col-8">
+        <div class="form-group">
+            {{#if type=='number'}}
+            <input type='number' ref:input 
+                class="form-control {{inputClass}}" id={{uuid}} 
+                placeholder={{placeholder}} 
+                bind:value="value" 
+                readonly="{{ readOnly ? 'readonly' : '' }}"            
+                />
+            {{else}}
+            <input type='text' ref:input 
+                class="form-control {{inputClass}}" id={{uuid}} 
+                placeholder={{placeholder}} 
+                bind:value="value" 
+                readonly="{{ readOnly ? 'readonly' : '' }}"            
+                />
+            {{/if}} 
+        </div>       
+    </div>
+</div>
+
+<script>
+    import { makeUniqueId } from './utils'
+    export default {
+        data() {
+            return { 
+                type: 'text',
+                uuid: makeUniqueId(),
+                placeholder: '',
+                label: '',
+                inputClass: '',
+                value: '',
+                class: '',
+                readOnly: false,
+                required: false,
+                pattern: '',
+                validate: null,
+                validators: null
+            }
+        },
+        oncreate() {
+            const element = this.refs.input;
+            this.observe('required', required => {
+                element.required = required;
+            });
+            element.required = this.get('required');
+            const pattern = this.get('pattern');
+            if (pattern) {
+                element.setAttribute('pattern', pattern);
+            }
+            this.initValidators(element, this.get('validate'));
+        },
+        methods: {
+            initValidators: function (element, data) {
+                if (data && data.length > 0) {
+                    data.forEach(function(attr) {
+                        const kv = attr.split('=');
+                        if (kv.length == 2) {
+                            element.setAttribute('data-validate-' + kv[0], kv[1]);
+                        }                    
+                    }, this);
+                }
+            }
+        }
+    }
+</script>
