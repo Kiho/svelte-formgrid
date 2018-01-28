@@ -1,5 +1,5 @@
 <div class={{classes}}>
-    {{#if edit && source}}
+    {{#if edit}}
         <:Component { fieldtype } bind:value="source[settings.field]" label={{settings.label}} settings="{{settings}}"/>
     {{elseif displayable}}
         {{ source[settings.field] }}

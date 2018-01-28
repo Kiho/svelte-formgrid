@@ -1,30 +1,27 @@
 {{#each rows as row}}
-<Row>
-    {{#each row.columns as col}}
-        {{#if col.subtitle}}
-            <div class="subtitle">{{col.subtitle}}</div>
-        {{else}}
-            <FormCol bind:source="item" settings="{{col}}" :edit />
-        {{/if}}
-    {{/each}}
-</Row>
-{{/each}} 
+    {{#if row.subtitle}}
+    <div class="row subtitle">{{row.subtitle}}</div>
+    {{/if}}
+    <div class="row {{class}}">
+        {{#each row.columns as col}}
+        <FormCol bind:source="item" settings="{{col}}" :edit />
+        {{/each}}
+    </div>
+{{/each}}
 
 <script>
 import FormCol from './FormCol.html';
-import Row from './Row.html';
 
 export default {
     data() {
         return {
+            class: '',
             edit: true,
             item: {},
-            rows: [],
             columns: [],
         }
     },
     components:{
-        Row,
         FormCol
     },
     computed:{
@@ -34,9 +31,13 @@ export default {
             for (let i = 0; i <= maxRowNum; i++) {
                 rows.push({ columns: [] });
             }
-            for (let i = 0; i < columns.length; i++) {
-                rows[columns[i].row].columns.push(columns[i]);
-            }
+            columns.forEach(col => {
+                const row = rows[col.row];
+                row.columns.push(col);
+                if (col.subtitle) {
+                    row.subtitle = col.subtitle;
+                }
+            });
             return rows;
         },
     },
@@ -45,8 +46,7 @@ export default {
 
 <style>
     .subtitle {
-        margin-top: 0.5rem; 
-        margin-left: 1rem; 
+        margin: 0.5rem;
         font-size: 1rem;
         font-weight: 600;
         text-decoration: underline;

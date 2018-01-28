@@ -21,6 +21,5 @@ dist/*
 **/node_modules/*
 **/bower_components/*
 .vscode/
-public/app.js
-public/app.css
+public/bundle.*
 public/*.map
