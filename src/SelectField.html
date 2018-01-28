@@ -4,7 +4,11 @@
         <div class="form-group">
             <select class="form-control {{inputClass}}" bind:value="value" id={{uuid}}>
                 {{#each optionList as opt}}
-                <option value={{opt.id}}>{{getOptionName(opt)}}</option>
+                    {{#if optionValue}}
+                    <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>
+                    {{else}}
+                    <option>{{opt}}</option>
+                    {{/if}}
                 {{/each}}
             </select>
         </div>
@@ -22,10 +26,11 @@
                 inputClass: '',
                 value: '',
                 optionList: [],
-                getOptionName: (x) => x.name
+                getOptionName: (x) => x.name,
+                optionValue: 'id'
             }
         },
-        computed:{
+        computed: {
             optionList: (settings) => {                
                 if (settings) {                    
                     return settings.optionList;

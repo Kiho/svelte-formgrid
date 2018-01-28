@@ -1,3 +1,4 @@
+<form class="form-horizontal" ref:form>
 {{#each rows as row}}
     {{#if row.subtitle}}
     <div class="row subtitle">{{row.subtitle}}</div>
@@ -8,6 +9,7 @@
         {{/each}}
     </div>
 {{/each}}
+</form>
 
 <script>
 import FormCol from './FormCol.html';

@@ -7,22 +7,31 @@
                 class="form-control {{inputClass}}" id={{uuid}} 
                 placeholder={{placeholder}} 
                 bind:value="value" 
-                readonly="{{ readOnly ? 'readonly' : '' }}"            
+                readonly="{{ readOnly ? 'readonly' : '' }}" 
+                required="{{ required }}"      
                 />
             {{else}}
             <input type='text' ref:input 
-                class="form-control {{inputClass}}" id={{uuid}} 
+                class="form-control {{inputClass}}" 
+                id={{uuid}} 
                 placeholder={{placeholder}} 
                 bind:value="value" 
-                readonly="{{ readOnly ? 'readonly' : '' }}"            
+                readonly="{{ readOnly ? 'readonly' : '' }}"
+                required="{{ required }}"           
                 />
-            {{/if}} 
+            {{/if}}
+            {{#if submit && error}}
+            <div class="invalid-feedback">
+                {{error}}
+            </div>
+            {{/if}}
         </div>       
     </div>
 </div>
 
 <script>
     import { makeUniqueId } from './utils'
+
     export default {
         data() {
             return { 
@@ -37,32 +46,37 @@
                 required: false,
                 pattern: '',
                 validate: null,
-                validators: null
+                submit: false,
+                error: '',
             }
+        },
+        computed: {
+            type: settings => settings ? settings.type : text,
+            readOnly: settings => settings ? settings.readOnly: false,
+            required: settings => settings ? settings.required: false,
+            pattern: settings => settings ? settings.pattern: ''
         },
         oncreate() {
             const element = this.refs.input;
-            this.observe('required', required => {
-                element.required = required;
-            });
-            element.required = this.get('required');
             const pattern = this.get('pattern');
             if (pattern) {
                 element.setAttribute('pattern', pattern);
             }
-            this.initValidators(element, this.get('validate'));
-        },
-        methods: {
-            initValidators: function (element, data) {
-                if (data && data.length > 0) {
-                    data.forEach(function(attr) {
-                        const kv = attr.split('=');
-                        if (kv.length == 2) {
-                            element.setAttribute('data-validate-' + kv[0], kv[1]);
-                        }                    
-                    }, this);
+            element.onkeyup = (e) => {
+                if (this.get('submit')) {
+                    const error = element.checkValidity() ? '' : element.validationMessage;
+                    this.set({error});
                 }
-            }
-        }
+            };
+            element.setError = (error) => {
+                this.set({error, submit: true});
+            };
+        },
     }
 </script>
+
+<style>
+    .invalid-feedback {
+        display: block;
+    }
+</style>

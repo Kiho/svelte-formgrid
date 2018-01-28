@@ -1,5 +1,6 @@
-<div>
-    <FormGrid columns={{columndata}} bind:item="item"></FormGrid>
+<div>        
+    <FormGrid columns={{columndata}} bind:item="item" ref:form ></FormGrid>
+    <button color="primary" on:click="save()">Save</button>
 </div>
 
 <script>
@@ -40,6 +41,25 @@ var data = [
         }
     ];
 
+function validateForm(form) {
+    // check validity of all inputs
+    const isValid = form.checkValidity();
+    if (!isValid) {
+        for (let i = 0; i < form.length; i++) {
+            const input = form[i];
+            if (input.checkValidity) {
+                if (!input.checkValidity()) {
+                    console.log(input.validationMessage);                        
+                }
+                if (input.setError) {
+                    input.setError(input.validationMessage);
+                }
+            }
+        }
+    }
+    return isValid;
+}
+
 export default {
     components: {
         FormGrid,
@@ -50,32 +70,38 @@ export default {
             columndata: [
                 {
                     subtitle: 'Customer',
-                    label: 'First Name', // Column name
-                    field: 'fname', // Field name from row
-                    numeric: false, // Affects sorting
+                    label: 'ID', 
+                    field: 'id',
                     component: 'text',
+                    readOnly: true,
                     row: 0,
-                    col: 'md-4'
+                    col: 'md-3'
+                }, {
+                    label: 'First Name',
+                    field: 'fname',
+                    component: 'text',
+                    required: true,
+                    row: 1,
+                    col: 'md-3'
                 }, {
                     label: 'Last Name',
                     field: 'lname',
-                    numeric: false,
                     component: 'text',
-                    row: 0,
+                    row: 1,
                     col: 'md-3'
                 }, {
                     label: 'Age',
                     field: 'age',
-                    numeric: true,
+                    type: 'number',
                     component: 'text',
-                    row: 1,
-                    col: 'md-4'
+                    row: 2,
+                    col: 'md-3'
                 }, {
                     label: 'State',
                     field: 'state',
                     optionList: stateList,
                     component: 'select',
-                    row: 1,
+                    row: 2,
                     col: 'md-3'
                 }
             ]                
@@ -85,6 +111,18 @@ export default {
         setTimeout(() => {
             this.set({ item: data[1] });
         }, 1000);
+    },
+    methods: {
+        save() {
+            const { item } = this.get();
+            const form = this.refs.form.refs.form;
+            console.log('save');
+            if (!validateForm(form)) {
+                console.log("Form is not valid", item);
+                return;
+            }
+            console.log("Form save successfull", item);
+        }
     }
 }
 </script>
