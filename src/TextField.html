@@ -4,10 +4,11 @@
         <div class="form-group">
             {{#if type=='number'}}
             <input type='number' ref:input 
-                class="form-control {{inputClass}}" id={{uuid}} 
+                class="form-control {{inputClass}}" 
+                id={{uuid}} 
                 placeholder={{placeholder}} 
                 bind:value="value" 
-                readonly="{{ readOnly ? 'readonly' : '' }}" 
+                readonly="{{ readOnly }}" 
                 required="{{ required }}"      
                 />
             {{else}}
@@ -16,8 +17,8 @@
                 id={{uuid}} 
                 placeholder={{placeholder}} 
                 bind:value="value" 
-                readonly="{{ readOnly ? 'readonly' : '' }}"
-                required="{{ required }}"           
+                readonly="{{readOnly}}"
+                required="{{required}}"           
                 />
             {{/if}}
             {{#if submit && error}}
@@ -54,14 +55,11 @@
             type: settings => settings ? settings.type : text,
             readOnly: settings => settings ? settings.readOnly: false,
             required: settings => settings ? settings.required: false,
+            placeholder: settings => settings ? settings.placeholder: '',
             pattern: settings => settings ? settings.pattern: ''
         },
         oncreate() {
             const element = this.refs.input;
-            const pattern = this.get('pattern');
-            if (pattern) {
-                element.setAttribute('pattern', pattern);
-            }
             element.onkeyup = (e) => {
                 if (this.get('submit')) {
                     const error = element.checkValidity() ? '' : element.validationMessage;
