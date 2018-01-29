@@ -55,8 +55,8 @@
             type: settings => settings ? settings.type : text,
             readOnly: settings => settings ? settings.readOnly: false,
             required: settings => settings ? settings.required: false,
-            placeholder: settings => settings ? settings.placeholder: '',
-            pattern: settings => settings ? settings.pattern: ''
+            placeholder: settings => settings ? settings.placeholder || '' : '',
+            pattern: settings => settings ? settings.pattern : ''
         },
         oncreate() {
             const element = this.refs.input;
