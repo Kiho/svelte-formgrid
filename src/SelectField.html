@@ -16,7 +16,7 @@
 </div>
 
 <script>
-    import { makeUniqueId } from './utils'
+    import { makeUniqueId, mergeProps } from './utils'
 
     export default {
         data() {
@@ -30,13 +30,8 @@
                 optionValue: 'id'
             }
         },
-        computed: {
-            optionList: (settings) => {                
-                if (settings) {                    
-                    return settings.optionList;
-                }
-                return [];
-            },
-        }
+        oncreate() {
+            mergeProps(this, 'settings');
+        },
     }
 </script>
