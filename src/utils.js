@@ -5,24 +5,9 @@ export function makeUniqueId() {
     });
 }
 
-function getDiff(newData, data) {
-    const diff = {}
-    let changed = false;
-    for (let key in newData) {
-        if (data[key] !== undefined 
-            && data[key] !== newData[key]) {
-            changed = true;
-            diff[key] = newData[key];
-        }
-    }
-    return { diff, changed }
-}
-
 export function mergeProps(component, name) {
     const props = component.get(name);
-    if (!props) return;
-    const { diff, changed } = getDiff(props, component.get());
-    if (changed) {
-        component.set(diff);
+    if (props) {        
+        component.set(props);
     }
 }
