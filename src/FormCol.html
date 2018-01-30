@@ -1,6 +1,6 @@
 <div class={{classes}}>
     {{#if edit}}
-        <:Component { fieldtype } bind:value="source[settings.field]" label={{settings.label}} settings="{{settings}}"/>
+        <:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}"/>
     {{elseif displayable}}
         {{ source[settings.field] }}
     {{/if}}

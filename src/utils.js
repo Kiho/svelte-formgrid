@@ -5,17 +5,12 @@ export function makeUniqueId() {
     });
 }
 
-function differs(a, b) {
-    return (a !== undefined && a !== b);
-}
-
-function getDiff(newData, oldData) {
+function getDiff(newData, data) {
     const diff = {}
     let changed = false;
     for (let key in newData) {
-        if (key === name) continue;
-        const val = newData[key]
-        if (differs(oldData[key], val)) {
+        if (data[key] !== undefined 
+            && data[key] !== newData[key]) {
             changed = true;
             diff[key] = newData[key];
         }
