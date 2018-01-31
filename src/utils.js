@@ -6,8 +6,14 @@ export function makeUniqueId() {
 }
 
 export function mergeProps(component, name) {
-    const props = component.get(name);
-    if (props) {        
-        component.set(props);
+    const s = component.get(name);
+    if (s) {
+        const t = component.get(), n = {};   
+        for (let k in s) {
+            if (t[k] !== undefined) {
+                n[k] = s[k];
+            }
+        }                            
+        component.set(n);
     }
 }
