@@ -1,0 +1,82 @@
+<div class="form-group row">
+    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <div class="col-8">
+        <div class="form-group">
+            <input type="text"
+                ref:input 
+                class="form-control {{inputClass}}" 
+                id={{uuid}} 
+                placeholder={{placeholder}} 
+                bind:value="text"
+                readonly="{{readOnly}}"
+                required="{{required}}" 
+                on:blur="blur(event)"          
+            />
+            {{#if submit && error}}
+            <div class="invalid-feedback">
+                {{error}}
+            </div>
+            {{/if}}
+        </div>       
+    </div>
+</div>
+
+<script>
+    import { makeUniqueId, mergeProps, formatCurrency } from './utils'
+
+    export default {
+        data() {
+            return { 
+                uuid: makeUniqueId(),
+                placeholder: '',
+                label: '',
+                inputClass: '',
+                value: '',
+                text: '',
+                class: '',
+                readOnly: false,
+                required: false,
+                pattern: '',
+                validate: null,
+                submit: false,
+                error: '',
+            }
+        },
+        oncreate() {
+            const element = this.refs.input;
+            element.onkeyup = (e) => {
+                if (this.get('submit')) {
+                    const error = element.checkValidity() ? '' : element.validationMessage;
+                    this.set({error});
+                }
+            };
+            element.setError = (error) => {
+                this.set({ error, submit: true });
+            };
+            mergeProps(this, 'settings');
+
+            this.observe('value', value => {
+                this.format(value);
+            }, { init: true });
+        },
+        methods: {
+            blur() {
+                this.unformat(this.get('text'));
+            },
+            format(value) {
+                const text = formatCurrency(value);
+                this.set({ text });	
+            },
+            unformat(text) {
+                const number = text ? Number(text.replace(/[^0-9\.]+/g,"")) : 0;
+                this.set({ value: number });
+            },
+        }    
+    }
+</script>
+
+<style>
+    .invalid-feedback {
+        display: block;
+    }
+</style>

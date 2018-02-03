@@ -17,3 +17,19 @@ export function mergeProps(component, name) {
         component.set(n);
     }
 }
+
+export function formatCurrency(data, alwaysShowCents = true) {
+    var options = {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    };
+  
+    if (!alwaysShowCents) {
+        options.minimumFractionDigits = 0;
+        options.maximumFractionDigits = 0;
+    }
+  
+    return Number(data).toLocaleString('en-US', options);
+}

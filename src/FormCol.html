@@ -8,7 +8,7 @@
 <script>
     import Text from './TextField.html';
     // import Date from './Date.html';
-    // import Number from './Number.html';
+    import Currency from './CurrencyField.html';
     import Select from './SelectField.html';
 
     export default {
@@ -38,9 +38,9 @@
                         case 'text':
                             ft = Text;
                             break;
-                        // case 'number':
-                        //     ft = Number;
-                        //     break;
+                        case 'currency':
+                            ft = Currency;
+                            break;
                         // case 'date':
                         //     ft = Date;
                         //     break;

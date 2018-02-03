@@ -19,25 +19,29 @@ var data = [
             "fname": "Gale",
             "lname": "Mcmyne",
             "age": 16,
-            "state": "RI"
+            "state": "RI",
+            "rate": 10,
         }, {
             "id": 2,
             "fname": "Tighe",
             "lname": "Walls",
             "age": 43,
-            "state": "AL"
+            "state": "AL",
+            "rate": 11,
         }, {
             "id": 3,
             "fname": "Anuj",
             "lname": "Wittcop",
             "age": 16,
-            "state": "MO"
+            "state": "MO",
+            "rate": 12,
         }, {
             "id": 4,
             "fname": "Elisha",
             "lname": "Mahan",
             "age": 28,
-            "state": "MA"
+            "state": "MA",
+            "rate": 13,
         }
     ];
 
@@ -97,12 +101,18 @@ export default {
                     row: 2,
                     col: 'md-3'
                 }, {
+                    label: 'Rate',
+                    field: 'rate',
+                    component: 'currency',
+                    row: 2,
+                    col: 'md-3'
+                }, {
                     label: 'State',
                     field: 'state',
                     optionList: stateList,
                     component: 'select',
                     row: 2,
-                    col: 'md-3'
+                    col: 'md-3'    
                 }
             ]                
         }
