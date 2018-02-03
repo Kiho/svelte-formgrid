@@ -1,0 +1,140 @@
+<div class="form-group row">
+    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <div class="col-8">
+        <div class="form-group">
+            <input type="text"
+                ref:input 
+                class="form-control {{inputClass}}" 
+                id={{uuid}} 
+                placeholder={{placeholder}} 
+                bind:value="text"
+                readonly="{{readOnly}}"
+                required="{{required}}" 
+                pattern="{{pattern}}"
+                on:focus="focus()"
+                on:input="input()"        
+            />
+            {{#if submit && error}}
+            <div class="invalid-feedback">
+                {{error}}
+            </div>
+            {{/if}}
+        </div>       
+    </div>
+</div>
+
+<script>
+    import { makeUniqueId, mergeProps, formatCurrency } from './utils'
+
+    export default {
+        data() {
+            return { 
+                uuid: makeUniqueId(),
+                placeholder: '',
+                label: '',
+                inputClass: '',
+                value: '',
+                text: '',
+                class: '',
+                readOnly: false,
+                required: false,
+                pattern: '',
+                validate: null,
+                submit: false,
+                error: '',
+                maxlength: 0,
+            }
+        },
+        oncreate() {
+            const element = this.refs.input;
+            element.onkeyup = (e) => {
+                if (this.get('submit')) {
+                    const error = element.checkValidity() ? '' : element.validationMessage;
+                    this.set({error});
+                }
+            };
+            element.setError = (error) => {
+                this.set({ error, submit: true });
+            };
+            mergeProps(this, 'settings');
+
+            this.observe('value', value => {
+                this.set({ text: value, lastVal: value });
+            }, { init: true });
+        },
+        methods: {
+            input() {
+                const element = this.refs.input;
+                const { maxlength, pattern, lastVal, text } = this.get();                    
+                const val = text.toUpperCase();
+
+                console.log('maxlength, pattern, lastVal, val', maxlength, pattern, lastVal, val)
+                    // lastVal = $(this).data('lastVal');
+    
+                // val = val.toUpperCase();
+                // get inserted chars
+                const inserted = findDelta(val, lastVal);
+                // get removed chars
+                const removed = findDelta(lastVal, val);
+                // determine if user pasted content
+                const pasted = inserted.length > 1 || (!inserted && !removed);
+    
+                let newVal = val;
+                if (val.length > maxlength) {
+                    newVal = lastVal;
+                }
+                else if (pasted) {
+                    if (!isValidString(val, pattern)) newVal = lastVal;
+                }
+                else if (!removed) {
+                    if (!isValidChar(inserted, pattern)) newVal = lastVal;
+                }
+    
+                // store current value as last value
+                // $(this).data('lastVal', this.value);
+                element.value = newVal.toUpperCase();
+                this.set({ value: element.value });
+            },
+
+            focus() {
+                const element = this.refs.input;
+                this.set({ lastVal: element.value });
+            }
+        }    
+    }
+
+    function findDelta(value, prevValue) {
+        let delta = '';
+
+        if (!prevValue) {
+            prevValue = '';
+        }
+        if (!value) {
+            value = '';
+        }
+        for (var i = 0; i < value.length; i++) {
+            const str = value.substr(0, i) +
+                value.substr(i + value.length - prevValue.length);
+            if (str === prevValue) delta =
+                value.substr(i, value.length - prevValue.length);
+        }
+
+        return delta;
+    }
+
+    function isValidChar(c, regex) {
+        return new RegExp(regex).test(c);
+    }
+
+    function isValidString(str, regex) {
+        for (var i = 0; i < str.length; i++)
+            if (!isValidChar(str.substr(i, 1), regex)) return false;
+        return true;
+    }
+</script>
+
+<style>
+    .invalid-feedback {
+        display: block;
+    }
+</style>

@@ -9,6 +9,7 @@
     import Text from './TextField.html';
     // import Date from './Date.html';
     import Currency from './CurrencyField.html';
+    import Masked from './MaskedField.html';
     import Select from './SelectField.html';
 
     export default {
@@ -40,6 +41,9 @@
                             break;
                         case 'currency':
                             ft = Currency;
+                            break;
+                        case 'masked':
+                            ft = Masked;
                             break;
                         // case 'date':
                         //     ft = Date;

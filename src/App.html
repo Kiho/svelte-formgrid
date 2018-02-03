@@ -21,6 +21,8 @@ var data = [
             "age": 16,
             "state": "RI",
             "rate": 10,
+            "zipCode": "12345",
+            "phone": "(123) 456-7890",
         }, {
             "id": 2,
             "fname": "Tighe",
@@ -28,6 +30,8 @@ var data = [
             "age": 43,
             "state": "AL",
             "rate": 11,
+            "zipCode": "23456",
+            "phone": "(123) 456-7890",
         }, {
             "id": 3,
             "fname": "Anuj",
@@ -35,6 +39,8 @@ var data = [
             "age": 16,
             "state": "MO",
             "rate": 12,
+            "zipCode": "34567",
+            "phone": "(123) 456-7890",
         }, {
             "id": 4,
             "fname": "Elisha",
@@ -42,6 +48,8 @@ var data = [
             "age": 28,
             "state": "MA",
             "rate": 13,
+            "zipCode": "45678",
+            "phone": "(123) 456-7890",
         }
     ];
 
@@ -112,6 +120,23 @@ export default {
                     optionList: stateList,
                     component: 'select',
                     row: 2,
+                    col: 'md-3'    
+                }, {
+                    label: 'Zip',
+                    field: 'zipCode',
+                    component: 'masked',
+                    pattern: '[0-9]', 
+                    maxlength: 5,
+                    row: 3,
+                    col: 'md-3'    
+                }, {
+                    label: 'Phone',
+                    field: 'phone',
+                    component: 'masked',
+                    pattern: '\(\d{3}\) \d{3}\-\d{4}', 
+                    placeholder: '(XXX) XXX-XXXX',
+                    maxlength: 20,
+                    row: 3,
                     col: 'md-3'    
                 }
             ]                
