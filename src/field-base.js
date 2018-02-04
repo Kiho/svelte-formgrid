@@ -9,6 +9,7 @@ export default {
             label: '',
             inputClass: '',
             value: '',
+            text: '',
             class: '',
             readOnly: false,
             required: false,
