@@ -4,15 +4,14 @@
         <div class="form-group">
             <input type="text"
                 ref:input 
-                class="form-control {{inputClass}}" 
+                class="form-control masked {{inputClass}}" 
                 id={{uuid}} 
                 placeholder={{placeholder}} 
                 bind:value="text"
                 readonly="{{readOnly}}"
                 required="{{required}}" 
-                pattern="{{pattern}}"
-                on:focus="focus()"
-                on:input="input()"        
+                pattern="{{pattern}}"                
+                on:input="handleChange(event)"        
             />
             {{#if submit && error}}
             <div class="invalid-feedback">
@@ -59,77 +58,78 @@
             mergeProps(this, 'settings');
 
             this.observe('value', value => {
-                this.set({ text: value, lastVal: value });
+                this.set({ text: value });
             }, { init: true });
         },
         methods: {
-            input() {
-                const element = this.refs.input;
-                const { maxlength, pattern, lastVal, text } = this.get();                    
-                const val = text.toUpperCase();
-
-                console.log('maxlength, pattern, lastVal, val', maxlength, pattern, lastVal, val)
-                    // lastVal = $(this).data('lastVal');
-    
-                // val = val.toUpperCase();
-                // get inserted chars
-                const inserted = findDelta(val, lastVal);
-                // get removed chars
-                const removed = findDelta(lastVal, val);
-                // determine if user pasted content
-                const pasted = inserted.length > 1 || (!inserted && !removed);
-    
-                let newVal = val;
-                if (val.length > maxlength) {
-                    newVal = lastVal;
-                }
-                else if (pasted) {
-                    if (!isValidString(val, pattern)) newVal = lastVal;
-                }
-                else if (!removed) {
-                    if (!isValidChar(inserted, pattern)) newVal = lastVal;
-                }
-    
-                // store current value as last value
-                // $(this).data('lastVal', this.value);
-                element.value = newVal.toUpperCase();
-                this.set({ value: element.value });
+            handleChange(e) {
+                const { maxlength, pattern, placeholder, text } = this.get();
+                e.target.value = this.handleCurrentValue(e);
+                // document.getElementById(uuid + 'Mask').innerHTML = this.setValueOfMask(e);
+                this.set({ value: e.target.value });
             },
 
-            focus() {
-                const element = this.refs.input;
-                this.set({ lastVal: element.value });
-            }
+            handleCurrentValue(e) {
+                const { charset, validExample } = this.get();
+                const isCharsetPresent = charset,
+                    maskedNumber = 'XMDY',
+                    maskedLetter = '_',
+                    placeholder = isCharsetPresent || this.get('placeholder'),
+                    value = e.target.value, l = placeholder.length;
+                let i, j, isInt, isLetter, strippedValue, matchesNumber, matchesLetter, newValue = '';
+
+                // strip special characters
+                strippedValue = isCharsetPresent ? value.replace(/\W/g, "") : value.replace(/\D/g, "");
+
+                for (i = 0, j = 0; i < l; i++) {
+                    isInt = !isNaN(parseInt(strippedValue[j]));
+                    isLetter = strippedValue[j] ? strippedValue[j].match(/[A-Z]/i) : false;
+                    matchesNumber = (maskedNumber.indexOf(placeholder[i]) >= 0);
+                    matchesLetter = (maskedLetter.indexOf(placeholder[i]) >= 0);
+                    if ((matchesNumber && isInt) || (isCharsetPresent && matchesLetter && isLetter)) {
+                        newValue += strippedValue[j++];
+                    } else if ((!isCharsetPresent && !isInt && matchesNumber) || (isCharsetPresent && ((matchesLetter && !isLetter) || (matchesNumber && !isInt)))) {
+                        return newValue;
+                    } else {
+                        newValue += placeholder[i];
+                    }
+                    // break if no characters left and the pattern is non-special character
+                    if (strippedValue[j] == undefined) {
+                        break;
+                    }
+                }
+
+                if (validExample) {
+                    return this.validateProgress(e, newValue);
+                }                
+                return newValue;
+            },
+
+            validateProgress(e, value) {
+                const { pattern, placeholder, validExample } = this.get();
+                let l = value.length, testValue = '', i;
+                const regex = new RegExp(this.props.pattern);
+
+                //convert to months
+                if ((l == 1) && (placeholder.toUpperCase().substr(0, 2) == 'MM')) {
+                    if(value > 1 && value < 10) {
+                        value = '0' + value;
+                    }
+                    return value;
+                }
+
+                for ( i = l; i >= 0; i--) {
+                    testValue = value + validExample.substr(value.length);
+                    if (regex.test(testValue)) {
+                        return value;
+                    } else {
+                        value = value.substr(0, value.length-1);
+                    }
+                }
+
+                return value;
+            },
         }    
-    }
-
-    function findDelta(value, prevValue) {
-        let delta = '';
-
-        if (!prevValue) {
-            prevValue = '';
-        }
-        if (!value) {
-            value = '';
-        }
-        for (var i = 0; i < value.length; i++) {
-            const str = value.substr(0, i) +
-                value.substr(i + value.length - prevValue.length);
-            if (str === prevValue) delta =
-                value.substr(i, value.length - prevValue.length);
-        }
-
-        return delta;
-    }
-
-    function isValidChar(c, regex) {
-        return new RegExp(regex).test(c);
-    }
-
-    function isValidString(str, regex) {
-        for (var i = 0; i < str.length; i++)
-            if (!isValidChar(str.substr(i, 1), regex)) return false;
-        return true;
     }
 </script>
 

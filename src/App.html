@@ -22,7 +22,7 @@ var data = [
             "state": "RI",
             "rate": 10,
             "zipCode": "12345",
-            "phone": "(123) 456-7890",
+            "phone": "123-456-7890",
         }, {
             "id": 2,
             "fname": "Tighe",
@@ -31,7 +31,7 @@ var data = [
             "state": "AL",
             "rate": 11,
             "zipCode": "23456",
-            "phone": "(123) 456-7890",
+            "phone": "123-456-7890",
         }, {
             "id": 3,
             "fname": "Anuj",
@@ -40,7 +40,7 @@ var data = [
             "state": "MO",
             "rate": 12,
             "zipCode": "34567",
-            "phone": "(123) 456-7890",
+            "phone": "332-456-7890",
         }, {
             "id": 4,
             "fname": "Elisha",
@@ -49,7 +49,7 @@ var data = [
             "state": "MA",
             "rate": 13,
             "zipCode": "45678",
-            "phone": "(123) 456-7890",
+            "phone": "322-456-7890",
         }
     ];
 
@@ -125,7 +125,8 @@ export default {
                     label: 'Zip',
                     field: 'zipCode',
                     component: 'masked',
-                    pattern: '[0-9]', 
+                    pattern: '^(\\d{5})', 
+                    placeholder: 'XXXXX',
                     maxlength: 5,
                     row: 3,
                     col: 'md-3'    
@@ -133,8 +134,8 @@ export default {
                     label: 'Phone',
                     field: 'phone',
                     component: 'masked',
-                    pattern: '\(\d{3}\) \d{3}\-\d{4}', 
-                    placeholder: '(XXX) XXX-XXXX',
+                    pattern: '\\d{3}\-\\d{3}\-\\d{4}', 
+                    placeholder: 'XXX-XXX-XXXX',
                     maxlength: 20,
                     row: 3,
                     col: 'md-3'    
