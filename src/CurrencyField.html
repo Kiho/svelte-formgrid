@@ -10,7 +10,7 @@
                 bind:value="text"
                 readonly="{{readOnly}}"
                 required="{{required}}" 
-                on:blur="blur(event)"          
+                on:blur="blur(text)"         
             />
             {{#if submit && error}}
             <div class="invalid-feedback">
@@ -22,21 +22,9 @@
 </div>
 
 <script>
-    import { makeUniqueId, mergeProps, formatCurrency } from './utils'
+    import { makeUniqueId, mergeProps, formatCurrency, debounce } from './utils'
 
-    // function debounce(func, wait, immediate) {
-	// 	let timeout;
-	// 	return function(...args) {
-	// 		clearTimeout(timeout);
-	// 		return new Promise((resolve) => {
-	// 			timeout = setTimeout(() => {
-	// 				timeout = null;
-	// 				if (!immediate) resolve(func.apply(this, args));
-	// 			}, wait)
-	// 			if (immediate && !timeout) resolve(func.apply(this, [...args]));
-	// 		});
-	// 	}
-	// }
+    const toNumber = v => Number(v.replace(/[^0-9\.]+/g,""));
 
     export default {
         data() {
@@ -54,6 +42,7 @@
                 validate: null,
                 submit: false,
                 error: '',
+                wait: 1000,
             }
         },
         oncreate() {
@@ -73,27 +62,34 @@
                 this.format(value);
             }, { init: true });
 
-            // this.observe('text', debounce((text) => {
-            //     console.log('debounce', text);
-            //     if (text) {
-            //         const num = Number(text.replace(/[^0-9\.]+/g,""));                    
-            //         if (num != 0) {
-            //             console.log('num', num);
-            //             this.format(num);
-            //         }
-            //     }
-			// }, 1000), { init: false });
+            const { wait }  = this.get();
+            if (wait) {
+                this.observe('text', debounce((text) => {
+                    // console.log('debounce', text);
+                    if (text && text.indexOf('.') > -1) {
+                        const num = toNumber(text);                    
+                        if (num != 0 && !isNaN(num)) {
+                            // console.log('num', num);
+                            this.format(num);
+                        }
+                    }
+                }, wait), { init: false });
+            }
         },
         methods: {
-            blur() {
-                this.unformat(this.get('text'));
+            blur(text) {
+                let num = text ? toNumber(text) : 0;
+                // TODO validation message
+                if (!isNaN(num)) {
+                   this.format(num);
+                }
             },
             format(value) {
                 const text = formatCurrency(value);
                 this.set({ text });	
             },
             unformat(text) {
-                const num = text ? Number(text.replace(/[^0-9\.]+/g,"")) : 0;
+                const num = text ? toNumber(text) : 0;
                 this.set({ value: num });
             },
         }    

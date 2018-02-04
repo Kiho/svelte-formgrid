@@ -33,3 +33,17 @@ export function formatCurrency(data, alwaysShowCents = true) {
   
     return Number(data).toLocaleString('en-US', options);
 }
+
+export function debounce(func, wait, immediate) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        return new Promise((resolve) => {
+            timeout = setTimeout(() => {
+                timeout = null;
+                if (!immediate) resolve(func.apply(this, args));
+            }, wait)
+            if (immediate && !timeout) resolve(func.apply(this, [...args]));
+        });
+    }
+}
