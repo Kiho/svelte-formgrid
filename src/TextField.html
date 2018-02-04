@@ -1,75 +1,36 @@
-<div class="form-group row">
-    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
-    <div class="col-8">
-        <div class="form-group">
-            {{#if type=='number'}}
-            <input type='number' ref:input 
-                class="form-control {{inputClass}}" 
-                id={{uuid}} 
-                placeholder={{placeholder}} 
-                bind:value="value" 
-                readonly="{{ readOnly }}" 
-                required="{{ required }}"      
-                />
-            {{else}}
-            <input type='text' ref:input 
-                class="form-control {{inputClass}}" 
-                id={{uuid}} 
-                placeholder={{placeholder}} 
-                bind:value="value" 
-                readonly="{{readOnly}}"
-                required="{{required}}"           
-                />
-            {{/if}}
-            {{#if submit && error}}
-            <div class="invalid-feedback">
-                {{error}}
-            </div>
-            {{/if}}
-        </div>       
-    </div>
-</div>
+<Field :uuid :label bind:submit bind:error >
+    {{#if type=='number'}}
+    <input type='number' ref:input 
+        class="form-control {{inputClass}}" 
+        id="{{uuid}}" 
+        placeholder="{{placeholder}}" 
+        bind:value
+        readonly="{{ readOnly }}" 
+        required="{{ required }}"      
+        />
+    {{else}}
+    <input type='text' ref:input
+        class="form-control {{inputClass}}" 
+        id="{{uuid}}" 
+        placeholder="{{placeholder}}" 
+        bind:value
+        readonly="{{readOnly}}"
+        required="{{required}}"          
+        />
+    {{/if}}
+</Field>
 
 <script>
-    import { makeUniqueId, mergeProps } from './utils'
+    import Field from './Field.html';
+    import fieldBase from './field-base';
 
     export default {
-        data() {
-            return { 
-                type: 'text',
-                uuid: makeUniqueId(),
-                placeholder: '',
-                label: '',
-                inputClass: '',
-                value: '',
-                class: '',
-                readOnly: false,
-                required: false,
-                pattern: '',
-                validate: null,
-                submit: false,
-                error: '',
-            }
+        components: {
+            Field
         },
+        data: fieldBase.data,
         oncreate() {
-            const element = this.refs.input;
-            element.onkeyup = (e) => {
-                if (this.get('submit')) {
-                    const error = element.checkValidity() ? '' : element.validationMessage;
-                    this.set({error});
-                }
-            };
-            element.setError = (error) => {
-                this.set({error, submit: true});
-            };
-
-            mergeProps(this, 'settings');
+            fieldBase.oncreate(this);
         },
     }
 </script>
-
-<style>
-    .invalid-feedback {
-        display: block;
-    }
-</style>

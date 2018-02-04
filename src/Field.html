@@ -1,0 +1,32 @@
+<div class="form-group row">
+    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <div class="col-8">
+        <div class="form-group">
+            <slot></slot>
+            {{#if submit && error}}
+            <div class="invalid-feedback">
+                {{error}}
+            </div>
+            {{/if}}
+        </div>       
+    </div>
+</div>
+
+<script>
+    export default {
+        data() {
+            return { 
+                uuid: '',
+                label: '',
+                submit: false,
+                error: '',
+            }
+        },
+    }
+</script>
+
+<style>
+    .invalid-feedback {
+        display: block;
+    }
+</style>

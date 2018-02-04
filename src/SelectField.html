@@ -1,21 +1,17 @@
-<div class="form-group row">
-    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
-    <div class="col-8">
-        <div class="form-group">
-            <select class="form-control {{inputClass}}" bind:value="value" id={{uuid}}>
-                {{#each optionList as opt}}
-                    {{#if typeof optionList[0] === 'string'}}
-                    <option>{{opt}}</option>
-                    {{else}}
-                    <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>                    
-                    {{/if}}
-                {{/each}}
-            </select>
-        </div>
-    </div>        
-</div>
+<Field :uuid :label >
+    <select class="form-control {{inputClass}}" bind:value="value" id={{uuid}}>
+        {{#each optionList as opt}}
+            {{#if typeof optionList[0] === 'string'}}
+            <option>{{opt}}</option>
+            {{else}}
+            <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>                    
+            {{/if}}
+        {{/each}}
+    </select>
+</Field>
 
 <script>
+    import Field from './Field.html';
     import { makeUniqueId, mergeProps } from './utils'
 
     export default {
@@ -32,6 +28,9 @@
         },
         oncreate() {
             mergeProps(this, 'settings');
+        },
+        components: {
+            Field
         },
     }
 </script>
