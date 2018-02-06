@@ -14,11 +14,10 @@
 
 <script>
     import { makeUniqueId, mergeProps, formatCurrency, debounce } from './utils'
-
-    const toNumber = v => Number(v.replace(/[^0-9\.]+/g,""));
-
     import Field from './Field.html';
     import fieldBase from './field-base';
+
+    const toNumber = v => Number(v.replace(/[^0-9\.]+/g,""));
 
     export default {
         components: {
