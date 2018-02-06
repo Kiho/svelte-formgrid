@@ -2,8 +2,9 @@
     <input type="text"
         ref:input 
         class="form-control {{inputClass}}" 
-        id={{uuid}} 
-        placeholder={{placeholder}} 
+        id="{{uuid}}" 
+        placeholder="{{placeholder}}"
+        pattern="^(?!\(.*[^)]$|[^(].*\)$)\(?\$?(0|[1-9]\d{0,2}(,?\d{3})?)(\.\d\d?)?\)?$"
         bind:value="text"
         readonly="{{readOnly}}"
         required="{{required}}" 
@@ -23,39 +24,21 @@
         components: {
             Field
         },
-        data() {
-            return Object.assign({}, fieldBase.data(), {
-                wait: 1000,
-            });
-        },
+        data: fieldBase.data,
         oncreate() {
             fieldBase.oncreate(this);
 
             this.observe('value', value => {
                 this.format(value);
             }, { init: true });
-
-            const { wait } = this.get();
-            if (wait) {
-                this.observe('text', debounce((text) => {
-                    // console.log('debounce', text);
-                    if (text && text.indexOf('.') > -1) {
-                        const num = toNumber(text);                    
-                        if (num != 0 && !isNaN(num)) {
-                            // console.log('num', num);
-                            this.format(num);
-                        }
-                    }
-                }, wait), { init: false });
-            }
         },
         methods: {
             blur(text) {
                 let num = text ? toNumber(text) : 0;
-                // TODO validation message
                 if (!isNaN(num)) {
                    this.format(num);
                 }
+                fieldBase.validate(this.refs.input);                
             },
             format(value) {
                 const text = formatCurrency(value);

@@ -33,4 +33,9 @@ export default {
 
         mergeProps(p, 'settings');
     },
+    validate(input) {
+        if (input.checkValidity) {
+            input.setError(input.validationMessage);
+        }
+    }
 }
