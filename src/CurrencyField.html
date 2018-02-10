@@ -13,7 +13,7 @@
 </Field>
 
 <script>
-    import { makeUniqueId, mergeProps, formatCurrency, debounce } from './utils'
+    import { makeUniqueId, mergeProps, formatCurrency } from './utils'
     import Field from './Field.html';
     import fieldBase from './field-base';
 
@@ -26,28 +26,19 @@
         data: fieldBase.data,
         oncreate() {
             fieldBase.oncreate(this);
-
             this.observe('value', value => {
-                this.format(value);
+                this.set({ text: formatCurrency(value) });
             }, { init: true });
         },
         methods: {
             blur(text) {
-                let num = text ? toNumber(text) : 0;
-                if (!isNaN(num)) {
-                    this.format(num);
+                let value = text ? toNumber(text) : 0;
+                if (!isNaN(value)) {
+                    this.set({ text: formatCurrency(value) });
                 }
                 if (fieldBase.validate(this)) {                    
-                    this.set({ value: num });
-                }                 
-            },
-            format(value) {
-                const text = formatCurrency(value);
-                this.set({ text });	
-            },
-            unformat(text) {
-                const num = text ? toNumber(text) : 0;
-                this.set({ value: num });
+                    this.set({ value });
+                }              
             },
         }
     }
