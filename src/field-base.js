@@ -30,12 +30,14 @@ export default {
         element.setError = (error) => {
             p.set({error, submit: true});
         };
-
+        p.set({ element });
         mergeProps(p, 'settings');
     },
-    validate(input) {
-        if (input.checkValidity) {
-            input.setError(input.validationMessage);
+    validate(p) { 
+        const { element } = p.get();       
+        if (element.checkValidity) {
+            element.setError(element.validationMessage);
         }
-    }
+        return element.checkValidity();
+    },
 }

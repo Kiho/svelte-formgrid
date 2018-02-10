@@ -35,9 +35,11 @@
             blur(text) {
                 let num = text ? toNumber(text) : 0;
                 if (!isNaN(num)) {
-                   this.format(num);
+                    this.format(num);
                 }
-                fieldBase.validate(this.refs.input);                
+                if (fieldBase.validate(this)) {                    
+                    this.set({ value: num });
+                }                 
             },
             format(value) {
                 const text = formatCurrency(value);
