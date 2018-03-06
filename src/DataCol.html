@@ -1,0 +1,43 @@
+{{#if edit}}
+<:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" />
+{{elseif displayable}}
+{{ source[settings.field] }}
+{{/if}}
+
+<script>
+    import { TextInput, SelectInput, DatePicker, Autocomplete } from './';
+
+    export default {
+        data(){
+            return {
+                source: {},
+            }
+        },
+        computed:{
+            displayable: (source, settings) => {
+                return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
+            },
+            fieldtype: settings => {
+                let ft = TextInput;
+                if (settings.component) {
+                    switch (settings.component.toLowerCase()) {
+                        case 'text':
+                            ft = TextInput;
+                            break;
+                        case 'masked':
+                            ft = Masked;
+                            break;
+                        case 'currency':
+                            ft = DatePicker;
+                            break;
+                        case 'select':
+                            ft = SelectInput;
+                            break;
+                    }
+                }
+                return ft;
+            }
+        }
+    }
+</script>
+    
