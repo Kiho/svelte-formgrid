@@ -1,4 +1,4 @@
-<Field :uuid :label bind:submit bind:error >
+<Field :uuid bind:label bind:submit bind:error >
     {{#if type=='number'}}
     <input type='number' ref:input 
         class="form-control {{inputClass}}" 
@@ -22,7 +22,7 @@
 
 <script>
     import Field from './Field.html';
-    import fieldBase from './field-base';
+    import fieldBase from './inputs/field-base';
 
     export default {
         components: {

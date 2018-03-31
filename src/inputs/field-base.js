@@ -1,4 +1,4 @@
-import { makeUniqueId, mergeProps } from './utils';
+import { makeUniqueId, mergeProps } from '../utils';
 
 export default {
     data() {
@@ -39,5 +39,12 @@ export default {
             element.setError(element.validationMessage);
         }
         return element.checkValidity();
+    },
+    setId(p) { 
+        const { element } = p.get();       
+        const { uuid } = p;
+        if (uuid) {
+            element.setAttribute('id', uuid);
+        }
     },
 }

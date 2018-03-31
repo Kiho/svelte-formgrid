@@ -1,0 +1,32 @@
+<select class="form-control {{inputClass}}" bind:value="value">
+    {{#each optionList as opt}}
+        {{#if typeof optionList[0] === 'string'}}
+        <option>{{opt}}</option>
+        {{else}}
+        <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>                    
+        {{/if}}
+    {{/each}}
+</select>
+
+<script>
+    import { makeUniqueId, mergeProps } from '../utils'
+    import fieldBase from './field-base';
+
+    export default {
+        data() {
+            return { 
+                uuid: '',
+                label: '',
+                inputClass: '',
+                value: '',
+                optionList: [],
+                getOptionName: (x) => x.name,
+                optionValue: 'id'
+            }
+        },
+        oncreate() {
+            fieldBase.oncreate(this);
+            fieldBase.setId(this);
+        },
+    }
+</script>

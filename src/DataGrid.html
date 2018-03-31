@@ -11,12 +11,12 @@
         </thead>
 
         <tbody>
-        {{#each items as row}}
+        {{#each rows as row}}
             <tr>
                 {{#each columns as column}}
                     <td class="{{ column.component || column.action ? 'nopadding' : '' }} {{ column.numeric ? 'numeric' : ''}} {{ column.truncate ? ' truncate' : '' }}" 
 							style="width: {{ column.width ? column.width : 'auto' }}">
-                        <EditCol bind:source="row" settings="{{column}}" :edit />
+                        <DataCol bind:source="row" settings="{{column}}" :edit on:update />
                     </td>    
                 {{/each}}
             </tr>
@@ -26,7 +26,7 @@
 </div>
     
 <script>
-    import EditCol from './EditCol.html';
+    import DataCol from './DataCol.html';
     
     export default {
         data() {
@@ -38,7 +38,7 @@
             }
         },
         components:{
-            EditCol
+            DataCol
         },
         computed: {
             colCount: columns => (columns) ? columns.length : 0,
@@ -46,252 +46,6 @@
     }
 </script>
 
-
 <style>
-	.control-overflow {
-		overflow-x: auto;
-	}
 
-	.hide-table-header {
-		display: none !important;
-	}
-
-	.compensate-for-header {
-		margin: 15px 0;
-	}
-
-	.data-table-info {
-		margin-top: 15px;
-    	margin-bottom: 15px;
-	}
-
-	.data-table-select {
-		border: 0;
-		margin-bottom: 5px;
-		margin-left: 5px;
-		width: 80px;
-	}
-
-	.align-icons {
-		margin-bottom: 10px;
-		line-height: 30px;
-		text-align: center;
-		font-size: 1.55rem;
-		width: 30px;
-		height: 30px;
-		margin-right: -5px;
-	}
-
-	.data-table-search,
-	.data-table-sort {
-		display: flex;
-		align-items: inherit;
-		margin-top: 10px;
-	}
-
-	.data-table-search {
-		width: 80%;
-	}
-
-	.search-label {
-		width: 95%;
-	}
-
-	@media (max-width: 676px) {
-		.data-table-search {
-			width: 60%;
-		}
-
-		.search-label {
-			width: 70%;
-		}
-	}
-
-	.actions:not(.actions--inverse) .actions__item:hover {
-		color: black;
-	}
-
-	.actions:not(.actions--inverse) .actions__item {
-		color: #707070;
-	}
-
-	.table-bordered th,
-	.table-bordered td {
-		border: 1px solid #a9a9a9;
-	}
-
-	.table-bordered th {
-		border-bottom: 0;
-	}
-
-	table tbody tr:hover {
-		background-color: #c9c9c9 !important;
-	}
-
-	tr.clickable {
-		cursor: pointer;
-	}
-
-	a.actions__item.zmdi.zmdi-close {
-		align-items: center;
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	#search-input {
-		margin: 0;
-		border: transparent 0 !important;
-	}
-
-	#search-input-container {
-		padding: 0 14px 0 24px;
-		border-bottom: solid 1px #DDDDDD;
-	}
-
-	table {
-		width: 100%;
-	}
-
-	.table-header {
-		height: 64px;
-		padding-left: 24px;
-		padding-right: 14px;
-		-webkit-align-items: center;
-		-ms-flex-align: center;
-		align-items: center;
-		display: flex;
-		-webkit-display: flex;
-		width: 100%;
-	}
-
-	.table-header .actions {
-		display: -webkit-flex;
-		margin-left: auto;
-	}
-
-	.table-header .btn-flat {
-		min-width: 36px;
-		padding: 0 8px;
-	}
-
-	.table-header input {
-		margin: 0;
-		height: auto;
-	}
-
-	.table-header i {
-		color: rgba(0, 0, 0, 0.54);
-		font-size: 24px;
-	}
-
-	.table-footer {
-		padding-left: 24px;
-		padding-right: 14px;
-		display: -webkit-flex;
-		display: flex;
-		-webkit-flex-direction: column;
-		flex-direction: column;
-		-webkit-justify-content: center;
-		justify-content: center;
-		-webkit-align-items: center;
-		align-items: center;
-		font-size: 12px !important;
-		color: rgba(0, 0, 0, 0.54);
-	}
-
-	.table-title {
-		font-size: 20px;
-		color: #000;
-	}
-
-	table tr td {
-		white-space: nowrap;
-		text-overflow: ellipsis;
-	}
-
-	table tr td.truncate {
-		max-width: 300px;
-		overflow: hidden;
-	}
-
-	table th {
-		cursor: pointer;
-		white-space: nowrap;
-		/* padding: 0; */
-		/* height: 40px; */
-		padding-left: 12px;
-		vertical-align: middle;
-	    overflow: hidden;
-	    text-overflow: ellipsis;
-	}
-
-	table th:hover {
-		overflow: visible;
-		text-overflow: initial;
-	}
-
-	table th.sorting-asc,
-	table th.sorting-desc {
-		color: rgba(0, 0, 0, 0.87);
-	}
-
-	table th.sorting:after,
-	table th.sorting-asc:after  {
-		font-family: 'Material Icons';
-		font-weight: normal;
-		font-style: normal;
-		font-size: 16px;
-		line-height: 1;
-		letter-spacing: normal;
-		text-transform: none;
-		display: inline-block;
-		word-wrap: normal;
-		-webkit-font-feature-settings: 'liga';
-		-webkit-font-smoothing: antialiased;
-		content: "arrow_back";
-		-webkit-transform: rotate(90deg);
-		color: rgba(0, 0, 0, 0);
-		vertical-align: middle;
-	}
-
-	table th.sorting:hover:after,
-	table th.sorting-asc:after,
-	table th.sorting-desc:after {
-		color: rgba(0, 0, 0, 0.87);
-	}
-
-	table th.sorting-desc:after {
-		content: "arrow_forward";
-	}
-
-	table tbody tr:hover {
-		background-color: #EEE;
-	}
-
-	.table-sm td.nopadding {
-		padding: 0;
-	}
-	.table-sm td.nopadding input {
-		padding: 0.35rem 0.5rem;
-		border-width: 0;
-		background-color: transparent;
-	}
-	.table-sm td.numeric {
-		text-align: right;
-	}
-	.table-sm td.numeric input {
-		text-align: right;
-	}
-
-	.data-table-checkbox {
-        margin: 0 !important;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-
-    .data-table-checkbox .custom-control.custom-checkbox {
-		padding-left: 1.3rem;
-		margin: 0;
-    }
 </style>

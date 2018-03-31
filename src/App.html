@@ -1,10 +1,16 @@
-<div>        
+<div>
+    <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
+</div>
+<div>  
+    {{#if show}}     
     <FormGrid columns={{columndata}} bind:item="item" ref:form ></FormGrid>
+    {{/if}}
     <button color="primary" on:click="save()">Save</button>
 </div>
 
 <script>
 import FormGrid from './FormGrid.html';
+import DataGrid from './DataGrid.html';
 
 const stateList = [
    {id: 'AL',name: 'ALABAMA'},
@@ -75,10 +81,33 @@ function validateForm(form) {
 export default {
     components: {
         FormGrid,
+        DataGrid,
     },
     data() {
         return { 
             item: data[0],
+            show: true,
+            fielddata: [
+                {
+                    label: 'Field', 
+                    field: 'field',
+                    component: 'text',
+                    readOnly: true,
+                }, {
+                    label: 'Label', 
+                    field: 'label',
+                    component: 'text',
+                }, {
+                    label: 'Read Only', 
+                    field: 'readOnly',
+                    component: 'text',    
+                }, {
+                    label: 'Row', 
+                    field: 'row',
+                    component: 'text',
+                    type: 'number'
+                }, 
+            ],
             columndata: [
                 {
                     subtitle: 'Customer',
@@ -147,6 +176,14 @@ export default {
         setTimeout(() => {
             this.set({ item: data[1] });
         }, 1000);
+        this.on('update', (e) => {
+            console.log('update', e);
+            this.set({ show: false });
+            this.set({ show: true });
+            // setTimeout(() => {
+            //     this.set({ show: true });
+            // }, 100);
+        })
     },
     methods: {
         save() {

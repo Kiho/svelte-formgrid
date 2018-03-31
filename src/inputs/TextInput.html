@@ -1,0 +1,31 @@
+{{#if type=='number'}}
+<input type='number' ref:input 
+    class="form-control {{inputClass}}" 
+    placeholder="{{placeholder}}" 
+    bind:value
+    readonly="{{ readOnly }}" 
+    required="{{ required }}" 
+    on:change="fire('update', event)" 
+    />
+{{else}}
+<input type='text' ref:input
+    class="form-control {{inputClass}}"  
+    placeholder="{{placeholder}}" 
+    bind:value
+    readonly="{{ readOnly }}"
+    required="{{ required }}" 
+    on:change="fire('update', event)"    
+    />
+{{/if}}
+
+<script>
+    import fieldBase from './field-base';
+
+    export default {
+        data: fieldBase.data,
+        oncreate() {
+            fieldBase.oncreate(this);
+            fieldBase.setId(this);
+        },
+    }
+</script>

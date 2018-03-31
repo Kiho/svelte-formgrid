@@ -35,10 +35,12 @@ export default {
             }
             columns.forEach(col => {
                 const row = rows[col.row];
-                row.columns.push(col);
-                if (col.subtitle) {
-                    row.subtitle = col.subtitle;
-                }
+                if (row && row.columns) {
+                    row.columns.push(col);
+                    if (col.subtitle) {
+                        row.subtitle = col.subtitle;
+                    }
+                }                
             });
             return rows;
         },

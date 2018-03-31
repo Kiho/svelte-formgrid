@@ -1,11 +1,11 @@
 {{#if edit}}
-<:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" />
+<:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" on:update />
 {{elseif displayable}}
 {{ source[settings.field] }}
 {{/if}}
 
 <script>
-    import { TextInput, SelectInput, DatePicker, Autocomplete } from './';
+    import { TextInput, SelectInput, CurrencyInput, MaskedInput } from './inputs';
 
     export default {
         data(){
