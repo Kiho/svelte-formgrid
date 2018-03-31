@@ -4,7 +4,7 @@ export default {
     data() {
         return { 
             type: 'text',
-            uuid: makeUniqueId(),
+            uuid: '',
             placeholder: '',
             label: '',
             inputClass: '',
@@ -19,7 +19,7 @@ export default {
             error: '',
         }
     },
-    oncreate(p) {
+    oncreate(p, field) {
         const element = p.refs.input;
         element.onkeyup = (e) => {
             if (p.get('submit')) {
@@ -30,6 +30,9 @@ export default {
         element.setError = (error) => {
             p.set({error, submit: true});
         };
+        if (field) {
+            element.setAttribute('id', makeUniqueId());
+        }
         p.set({ element });
         mergeProps(p, 'settings');
     },
@@ -39,12 +42,5 @@ export default {
             element.setError(element.validationMessage);
         }
         return element.checkValidity();
-    },
-    setId(p) { 
-        const { element } = p.get();       
-        const { uuid } = p;
-        if (uuid) {
-            element.setAttribute('id', uuid);
-        }
     },
 }

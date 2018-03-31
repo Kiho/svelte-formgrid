@@ -7,7 +7,7 @@
 </div>
 <script>
     import Text from './TextField.html';
-    // import Date from './Date.html';
+    import Number from './NumberField.html';
     import Currency from './CurrencyField.html';
     import Masked from './MaskedField.html';
     import Select from './SelectField.html';
@@ -45,9 +45,9 @@
                         case 'masked':
                             ft = Masked;
                             break;
-                        // case 'date':
-                        //     ft = Date;
-                        //     break;
+                        case 'number':
+                            ft = Number;
+                            break;
                         case 'select':
                             ft = Select;
                             break;

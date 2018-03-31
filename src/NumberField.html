@@ -1,11 +1,12 @@
 <Field :uuid :label bind:submit bind:error >
-    <input type='text' 
+    <input type='number' 
         ref:input
-        class="form-control {{inputClass}}"  
-        :placeholder
-        :required
+        :label
+        class="form-control {{inputClass}}"
+        placeholder="{{placeholder}}" 
         bind:value
-        readonly="{{readOnly}}"        
+        :required
+        readonly="{{readOnly}}"
         />
 </Field>
 

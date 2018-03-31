@@ -1,11 +1,11 @@
 {{#if edit}}
-<:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" on:update />
+    <:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" on:update />
 {{elseif displayable}}
-{{ source[settings.field] }}
+    {{ source[settings.field] }}
 {{/if}}
 
 <script>
-    import { TextInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput } from './inputs';
+    import { TextInput, NumberInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput } from './inputs';
 
     export default {
         data(){
@@ -24,6 +24,9 @@
                         case 'text':
                             ft = TextInput;
                             break;
+                        case 'number':
+                            ft = NumberInput;
+                            break;    
                         case 'masked':
                             ft = Masked;
                             break;

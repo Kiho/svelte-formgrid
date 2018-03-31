@@ -9,7 +9,6 @@
 </select>
 
 <script>
-    import { makeUniqueId, mergeProps } from '../utils'
     import fieldBase from './field-base';
 
     export default {
@@ -26,7 +25,6 @@
         },
         oncreate() {
             fieldBase.oncreate(this);
-            fieldBase.setId(this);
         },
     }
 </script>

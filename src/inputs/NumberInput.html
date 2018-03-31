@@ -1,12 +1,10 @@
-<input 
-    type='text' 
-    ref:input
-    class="form-control {{inputClass}}"  
+<input type='number' ref:input 
+    class="form-control {{inputClass}}" 
     placeholder="{{placeholder}}" 
     bind:value
-    readonly="{{readOnly}}"
+    readonly="{{readOnly}}" 
     required="{{required}}" 
-    on:change="fire('update', event)"    
+    on:change="fire('update', event)" 
     />
 
 <script>
