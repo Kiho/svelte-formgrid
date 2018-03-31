@@ -1,7 +1,7 @@
 # Svelte FormGrid
 **Work in progress...**
-- Try to find out soultion to growth rate of Svelte
 - Render the form with data
+- Reduce bundle size
 - Simple form validation
 - Simple input masking
 

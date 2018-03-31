@@ -100,7 +100,7 @@ export default {
                 }, {
                     label: 'Read Only', 
                     field: 'readOnly',
-                    component: 'text',    
+                    component: 'checkbox',    
                 }, {
                     label: 'Row', 
                     field: 'row',
@@ -180,9 +180,6 @@ export default {
             console.log('update', e);
             this.set({ show: false });
             this.set({ show: true });
-            // setTimeout(() => {
-            //     this.set({ show: true });
-            // }, 100);
         })
     },
     methods: {

@@ -45,7 +45,3 @@
         },
     }
 </script>
-
-<style>
-
-</style>

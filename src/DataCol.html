@@ -5,7 +5,7 @@
 {{/if}}
 
 <script>
-    import { TextInput, SelectInput, CurrencyInput, MaskedInput } from './inputs';
+    import { TextInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput } from './inputs';
 
     export default {
         data(){
@@ -33,6 +33,9 @@
                         case 'select':
                             ft = SelectInput;
                             break;
+                        case 'checkbox':
+                            ft = CheckboxInput;
+                            break;    
                     }
                 }
                 return ft;

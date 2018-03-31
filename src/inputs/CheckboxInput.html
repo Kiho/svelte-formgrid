@@ -1,0 +1,23 @@
+<input 
+    type="checkbox"
+    bind:checked="value"
+    class="{{class}}"
+    on:change="fire('update', event)"
+/>
+
+<script>
+    export default {
+        data() {
+            return {
+                label: '',
+                class: '',
+                value: false,
+            }
+        }
+    }
+</script>
+<style>
+    input {
+        margin: 0 0 0 0.5rem;
+    }
+</style>
