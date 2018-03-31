@@ -1,7 +1,5 @@
-<div>
+<div class="container-fluid">
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
-</div>
-<div>  
     {{#if show}}     
     <FormGrid columns={{columndata}} bind:item="item" ref:form ></FormGrid>
     {{/if}}
@@ -175,7 +173,6 @@ export default {
             this.set({ item: data[1] });
         }, 1000);
         this.on('update', (e) => {
-            console.log('update', e);
             this.set({ show: false });
             this.set({ show: true });
         })
