@@ -6,5 +6,5 @@
 - Simple input masking
 
 # Credits
-https://github.com/lnryan/tryouts/tree/master/svelte/DataTable
-https://github.com/estelle/input-masking
+- https://github.com/lnryan/tryouts/tree/master/svelte/DataTable
+- https://github.com/estelle/input-masking
