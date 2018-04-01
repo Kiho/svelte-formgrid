@@ -34,7 +34,6 @@ export default {
             element.setAttribute('id', makeUniqueId());
         }
         p.set({ element });
-        mergeProps(p, 'settings');
     },
     validate(p) { 
         const { element } = p.get();       

@@ -1,0 +1,39 @@
+<input type="text"
+    ref:input 
+    class="form-control {{inputClass}}" 
+    id="{{uuid}}" 
+    placeholder="{{placeholder}}"
+    pattern="^(?!\(.*[^)]$|[^(].*\)$)\(?\$?(0|[1-9]\d{0,2}(,?\d{3})?)(\.\d\d?)?\)?$"
+    bind:value="text"
+    readonly="{{readOnly}}"
+    required="{{required}}" 
+    on:blur="blur(text)"         
+    />
+
+<script>
+    import { formatCurrency } from '../utils'
+    import fieldBase from './field-base';
+
+    const toNumber = v => Number(v.replace(/[^0-9\.]+/g,""));
+
+    export default {
+        data: fieldBase.data,
+        oncreate() {
+            fieldBase.oncreate(this, true);
+            this.observe('value', value => {
+                this.set({ text: formatCurrency(value) });
+            }, { init: true });
+        },
+        methods: {
+            blur(text) {
+                let value = text ? toNumber(text) : 0;
+                if (!isNaN(value)) {
+                    this.set({ text: formatCurrency(value) });
+                }
+                if (fieldBase.validate(this)) {                    
+                    this.set({ value });
+                }              
+            },
+        }
+    }
+</script>

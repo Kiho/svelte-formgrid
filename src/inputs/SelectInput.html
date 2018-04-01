@@ -1,4 +1,4 @@
-<select class="form-control {{inputClass}}" bind:value="value">
+<select class="form-control {{inputClass}}" bind:value="value" ref:input>
     {{#each optionList as opt}}
         {{#if typeof optionList[0] === 'string'}}
         <option>{{opt}}</option>

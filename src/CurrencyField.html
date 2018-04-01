@@ -1,45 +1,21 @@
 <Field :uuid :label bind:submit bind:error >
-    <input type="text"
-        ref:input 
-        class="form-control {{inputClass}}" 
-        id="{{uuid}}" 
-        placeholder="{{placeholder}}"
-        pattern="^(?!\(.*[^)]$|[^(].*\)$)\(?\$?(0|[1-9]\d{0,2}(,?\d{3})?)(\.\d\d?)?\)?$"
-        bind:value="text"
-        readonly="{{readOnly}}"
-        required="{{required}}" 
-        on:blur="blur(text)"         
-    />
+    <CurrencyInput {{...settings}} bind:value />
 </Field>
 
 <script>
-    import { makeUniqueId, mergeProps, formatCurrency } from './utils'
     import Field from './Field.html';
+    import CurrencyInput from './inputs/CurrencyInput.html';
     import fieldBase from './inputs/field-base';
-
-    const toNumber = v => Number(v.replace(/[^0-9\.]+/g,""));
+    import { mergeProps } from './utils';
 
     export default {
         components: {
-            Field
+            Field,
+            CurrencyInput
         },
         data: fieldBase.data,
         oncreate() {
-            fieldBase.oncreate(this);
-            this.observe('value', value => {
-                this.set({ text: formatCurrency(value) });
-            }, { init: true });
-        },
-        methods: {
-            blur(text) {
-                let value = text ? toNumber(text) : 0;
-                if (!isNaN(value)) {
-                    this.set({ text: formatCurrency(value) });
-                }
-                if (fieldBase.validate(this)) {                    
-                    this.set({ value });
-                }              
-            },
-        }
+            mergeProps(this, 'settings');
+        }, 
     }
 </script>

@@ -1,101 +1,21 @@
 <Field :uuid :label bind:submit bind:error >
-    <input type="text"
-        ref:input 
-        class="form-control masked {{inputClass}}" 
-        id={{uuid}} 
-        placeholder={{placeholder}} 
-        bind:value="text"
-        readonly="{{readOnly}}"
-        required="{{required}}" 
-        pattern="{{pattern}}"                
-        on:input="handleChange(event)"        
-    />
+    <MaskedInput {{...settings}} bind:value />
 </Field>
 
 <script>
     import Field from './Field.html';
+    import MaskedInput from './inputs/MaskedInput.html';
     import fieldBase from './inputs/field-base';
+    import { mergeProps } from './utils';
 
     export default {
         components: {
-            Field
+            Field,
+            MaskedInput
         },
         data: fieldBase.data,
         oncreate() {
-            fieldBase.oncreate(this);
-
-            this.observe('value', value => {
-                this.set({ text: value });
-            }, { init: true });
-        },
-        methods: {
-            handleChange(e) {
-                const { maxlength, pattern, placeholder, text } = this.get();
-                e.target.value = this.handleCurrentValue(e);
-                // document.getElementById(uuid + 'Mask').innerHTML = this.setValueOfMask(e);
-                this.set({ value: e.target.value });
-            },
-
-            handleCurrentValue(e) {
-                const { charset, validExample } = this.get();
-                const isCharsetPresent = charset,
-                    maskedNumber = 'XMDY',
-                    maskedLetter = '_',
-                    placeholder = isCharsetPresent || this.get('placeholder'),
-                    value = e.target.value, l = placeholder.length;
-                let i, j, isInt, isLetter, strippedValue, matchesNumber, matchesLetter, newValue = '';
-
-                // strip special characters
-                strippedValue = isCharsetPresent ? value.replace(/\W/g, "") : value.replace(/\D/g, "");
-
-                for (i = 0, j = 0; i < l; i++) {
-                    isInt = !isNaN(parseInt(strippedValue[j]));
-                    isLetter = strippedValue[j] ? strippedValue[j].match(/[A-Z]/i) : false;
-                    matchesNumber = (maskedNumber.indexOf(placeholder[i]) >= 0);
-                    matchesLetter = (maskedLetter.indexOf(placeholder[i]) >= 0);
-                    if ((matchesNumber && isInt) || (isCharsetPresent && matchesLetter && isLetter)) {
-                        newValue += strippedValue[j++];
-                    } else if ((!isCharsetPresent && !isInt && matchesNumber) || (isCharsetPresent && ((matchesLetter && !isLetter) || (matchesNumber && !isInt)))) {
-                        return newValue;
-                    } else {
-                        newValue += placeholder[i];
-                    }
-                    // break if no characters left and the pattern is non-special character
-                    if (strippedValue[j] == undefined) {
-                        break;
-                    }
-                }
-
-                if (validExample) {
-                    return this.validateProgress(e, newValue);
-                }                
-                return newValue;
-            },
-
-            validateProgress(e, value) {
-                const { pattern, placeholder, validExample } = this.get();
-                let l = value.length, testValue = '', i;
-                const regex = new RegExp(this.props.pattern);
-
-                //convert to months
-                if ((l == 1) && (placeholder.toUpperCase().substr(0, 2) == 'MM')) {
-                    if(value > 1 && value < 10) {
-                        value = '0' + value;
-                    }
-                    return value;
-                }
-
-                for ( i = l; i >= 0; i--) {
-                    testValue = value + validExample.substr(value.length);
-                    if (regex.test(testValue)) {
-                        return value;
-                    } else {
-                        value = value.substr(0, value.length-1);
-                    }
-                }
-
-                return value;
-            },
-        }    
+            mergeProps(this, 'settings');
+        }, 
     }
 </script>

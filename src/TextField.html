@@ -1,25 +1,21 @@
 <Field :uuid :label bind:submit bind:error >
-    <input type='text' 
-        ref:input
-        class="form-control {{inputClass}}"  
-        :placeholder
-        :required
-        bind:value
-        readonly="{{readOnly}}"        
-        />
+    <TextInput {{...settings}} bind:value />
 </Field>
 
 <script>
     import Field from './Field.html';
+    import TextInput from './inputs/TextInput.html';
     import fieldBase from './inputs/field-base';
+    import { mergeProps } from './utils';
 
     export default {
         components: {
-            Field
+            Field,
+            TextInput
         },
         data: fieldBase.data,
         oncreate() {
-            fieldBase.oncreate(this, true);
-        },
+            mergeProps(this, 'settings');
+        }, 
     }
 </script>

@@ -1,26 +1,21 @@
 <Field :uuid :label bind:submit bind:error >
-    <input type='number' 
-        ref:input
-        :label
-        class="form-control {{inputClass}}"
-        placeholder="{{placeholder}}" 
-        bind:value
-        :required
-        readonly="{{readOnly}}"
-        />
+    <NumberInput {{...settings}} bind:value />
 </Field>
 
 <script>
     import Field from './Field.html';
+    import NumberInput from './inputs/NumberInput.html';
     import fieldBase from './inputs/field-base';
+    import { mergeProps } from './utils';
 
     export default {
         components: {
-            Field
+            Field,
+            NumberInput
         },
         data: fieldBase.data,
         oncreate() {
-            fieldBase.oncreate(this, true);
-        },
+            mergeProps(this, 'settings');
+        }, 
     }
 </script>

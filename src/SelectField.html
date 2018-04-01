@@ -1,36 +1,21 @@
-<Field :uuid :label >
-    <select class="form-control {{inputClass}}" bind:value="value" id={{uuid}}>
-        {{#each optionList as opt}}
-            {{#if typeof optionList[0] === 'string'}}
-            <option>{{opt}}</option>
-            {{else}}
-            <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>                    
-            {{/if}}
-        {{/each}}
-    </select>
+<Field :uuid :label bind:submit bind:error >
+    <SelectInput {{...settings}} bind:value />
 </Field>
 
 <script>
     import Field from './Field.html';
-    import { makeUniqueId, mergeProps } from './utils'
+    import SelectInput from './inputs/SelectInput.html';
+    import fieldBase from './inputs/field-base';
+    import { mergeProps } from './utils';
 
     export default {
-        data() {
-            return { 
-                uuid: makeUniqueId(),
-                label: '',
-                inputClass: '',
-                value: '',
-                optionList: [],
-                getOptionName: (x) => x.name,
-                optionValue: 'id'
-            }
+        components: {
+            Field,
+            SelectInput
         },
+        data: fieldBase.data,
         oncreate() {
             mergeProps(this, 'settings');
-        },
-        components: {
-            Field
-        },
+        }, 
     }
 </script>
