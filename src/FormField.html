@@ -1,0 +1,69 @@
+<div class="form-group row">
+    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <div class="col-8">
+        <div class="form-group">
+            <:Component { fieldtype } bind:value {{...settings}} />
+            {{#if submit && error}}
+            <div class="invalid-feedback">
+                {{error}}
+            </div>
+            {{/if}}
+        </div>       
+    </div>
+</div>
+
+<script>
+    import Text from './inputs/TextInput.html';
+    import Number from './inputs/NumberInput.html';
+    import Currency from './inputs/CurrencyInput.html';
+    import Masked from './inputs/MaskedInput.html';
+    import Select from './inputs/SelectInput.html';
+    import { mergeProps } from './utils';
+
+    export default {
+        data() {
+            return { 
+                uuid: '',
+                label: '',
+                submit: false,
+                error: '',
+                value: '',
+                settings: {}
+            }
+        },
+        oncreate() {
+            mergeProps(this, 'settings');
+        },
+        computed:{
+            fieldtype: settings => {
+                let ft = Text;
+                if (settings.component) {
+                    switch (settings.component.toLowerCase()) {
+                        case 'text':
+                            ft = Text;
+                            break;
+                        case 'currency':
+                            ft = Currency;
+                            break;
+                        case 'masked':
+                            ft = Masked;
+                            break;
+                        case 'number':
+                            ft = Number;
+                            break;
+                        case 'select':
+                            ft = Select;
+                            break;
+                    }
+                }
+                return ft;
+            }
+        }
+    }
+</script>
+
+<style>
+    .invalid-feedback {
+        display: block;
+    }
+</style>

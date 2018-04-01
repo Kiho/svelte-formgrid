@@ -1,22 +1,19 @@
 <div class={{classes}}>
     {{#if edit}}
-        <:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}"/>
+        <FormField bind:value="source[settings.field]" :settings/>
     {{elseif displayable}}
         {{ source[settings.field] }}
     {{/if}}
 </div>
 <script>
-    import Text from './TextField.html';
-    import Number from './NumberField.html';
-    import Currency from './CurrencyField.html';
-    import Masked from './MaskedField.html';
-    import Select from './SelectField.html';
+    import FormField from './FormField.html';
 
     export default {
+        components: {
+            FormField
+        },
         data(){
             return {
-                // edit: true,
-                // editable: true,
                 source: {},
             }
         },
@@ -31,29 +28,6 @@
             },
             displayable: (source, settings) => {
                 return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
-            },
-            fieldtype: settings => {
-                let ft = Text;
-                if (settings.component) {
-                    switch (settings.component.toLowerCase()) {
-                        case 'text':
-                            ft = Text;
-                            break;
-                        case 'currency':
-                            ft = Currency;
-                            break;
-                        case 'masked':
-                            ft = Masked;
-                            break;
-                        case 'number':
-                            ft = Number;
-                            break;
-                        case 'select':
-                            ft = Select;
-                            break;
-                    }
-                }
-                return ft;
             }
         }
     }
