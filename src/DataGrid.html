@@ -16,7 +16,7 @@
                 {{#each columns as column}}
                     <td class="{{ column.component || column.action ? 'nopadding' : '' }} {{ column.numeric ? 'numeric' : ''}} {{ column.truncate ? ' truncate' : '' }}" 
 							style="width: {{ column.width ? column.width : 'auto' }}">
-                        <DataCol bind:source="row" settings="{{column}}" :edit on:update />
+                        <DataCol bind:source="row" settings="{{column}}" :edit on:change="fire('update', { event })" />
                     </td>    
                 {{/each}}
             </tr>

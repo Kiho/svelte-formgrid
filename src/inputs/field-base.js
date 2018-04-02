@@ -32,8 +32,10 @@ export default {
         };
         if (field) {
             element.setAttribute('id', makeUniqueId());
+        } else {
+            mergeProps(p, 'settings');
         }
-        p.set({ element });
+        p.set({ element });        
     },
     validate(p) { 
         const { element } = p.get();       
