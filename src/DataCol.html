@@ -1,5 +1,5 @@
 {{#if edit}}
-    <:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" on:update />
+    <:Component { fieldtype } bind:value="source[settings.field]" settings="{{settings}}" on:change />
 {{elseif displayable}}
     {{ source[settings.field] }}
 {{/if}}
