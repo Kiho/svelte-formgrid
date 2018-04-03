@@ -1,5 +1,5 @@
 <Field :uuid :label bind:submit bind:error >
-    <NumberInput {{...settings}} bind:value />
+    <NumberInput {{...settings}} bind:value bind:submit bind:error uniqueId={{true}} />
 </Field>
 
 <script>

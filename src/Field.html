@@ -5,7 +5,7 @@
             <slot></slot>
             {{#if submit && error}}
             <div class="invalid-feedback">
-                {{error}}
+                {{message}}
             </div>
             {{/if}}
         </div>       
@@ -22,6 +22,14 @@
                 error: '',
             }
         },
+        computed:{
+            message: (submit, error) => {                
+                if (submit) {
+                    return error;
+                }
+                return '';
+            },
+        }
     }
 </script>
 
