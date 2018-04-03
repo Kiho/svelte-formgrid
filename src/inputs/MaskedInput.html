@@ -17,28 +17,12 @@
     export default {
         data: fieldBase.data,
         oncreate() {
-            this.oncreate(this);
+            fieldBase.oncreate(this);
             this.observe('value', value => {
                 this.set({ text: value });
             }, { init: true });
         },
         methods: {
-            oncreate(p, field) {
-                const element = p.refs.input;
-                element.onkeyup = (e) => {
-                    if (p.get('submit')) {
-                        const error = element.checkValidity() ? '' : element.validationMessage;
-                        p.set({error});
-                    }
-                };
-                element.setError = (error) => {
-                    p.set({error, submit: true});
-                };
-                if (field) {
-                    element.setAttribute('id', makeUniqueId());
-                }
-                p.set({ element });
-            },
             handleChange(e) {
                 const { maxlength, pattern, placeholder, text } = this.get();
                 e.target.value = this.handleCurrentValue(e);

@@ -1,4 +1,4 @@
-import { makeUniqueId, mergeProps } from '../utils';
+import { makeUniqueId } from '../utils';
 
 export default {
     data() {
@@ -21,7 +21,7 @@ export default {
         }
     },
     oncreate(p) {
-        const { uniqueId } = p.get();
+        const { uniqueId, settings } = p.get();
         const element = p.refs.input;
         element.onkeyup = (e) => {
             if (p.get('submit')) {
@@ -34,8 +34,9 @@ export default {
         };
         if (uniqueId) {
             element.setAttribute('id', makeUniqueId());
-        } else {
-            mergeProps(p, 'settings');
+        } 
+        if (settings) {
+            this.mergeProps(p, settings);
         }
         p.set({ element });        
     },
@@ -45,5 +46,14 @@ export default {
             element.setError(element.validationMessage);
         }
         return element.checkValidity();
+    },
+    mergeProps(p, s) {
+        const t = p.get(), n = {};   
+        for (let k in s) {
+            if (t[k] !== undefined) {
+                n[k] = s[k];
+            }
+        }                            
+        p.set(n);
     },
 }

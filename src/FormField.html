@@ -2,7 +2,7 @@
     <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
     <div class="col-8">
         <div class="form-group">
-            <:Component { fieldtype } bind:value {{...settings}} />
+            <:Component { fieldtype } :settings bind:value bind:submit bind:error uniqueId={{true}} />
             {{#if submit && error}}
             <div class="invalid-feedback">
                 {{error}}
@@ -13,11 +13,13 @@
 </div>
 
 <script>
-    import Text from './inputs/TextInput.html';
-    import Number from './inputs/NumberInput.html';
-    import Currency from './inputs/CurrencyInput.html';
-    import Masked from './inputs/MaskedInput.html';
-    import Select from './inputs/SelectInput.html';
+    import {
+        TextInput,
+        SelectInput,
+        NumberInput,
+        CurrencyInput,
+        MaskedInput,
+    } from './inputs';
     import { mergeProps } from './utils';
 
     export default {
@@ -36,23 +38,20 @@
         },
         computed:{
             fieldtype: settings => {
-                let ft = Text;
+                let ft = TextInput;
                 if (settings.component) {
                     switch (settings.component.toLowerCase()) {
-                        case 'text':
-                            ft = Text;
-                            break;
                         case 'currency':
-                            ft = Currency;
+                            ft = CurrencyInput;
                             break;
                         case 'masked':
-                            ft = Masked;
+                            ft = MaskedInput;
                             break;
                         case 'number':
-                            ft = Number;
+                            ft = NumberInput;
                             break;
                         case 'select':
-                            ft = Select;
+                            ft = SelectInput;
                             break;
                     }
                 }
