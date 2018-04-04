@@ -38,9 +38,9 @@ export default {
         if (uuid) {
             element.setAttribute('id', uuid);
         } 
-        if (settings) {
-            this.mergeProps(p, settings);
-        }
+        // if (settings) {
+        //     this.mergeProps(p, settings);
+        // }
         p.set({ element });        
     },
     validate(p) { 

@@ -10,7 +10,7 @@
     "rollup-plugin-svelte": "^4.1.0",
     "rollup-plugin-uglify": "^2.0.1",
     "serve": "^6.4.3",
-    "svelte": "^1.60.0"
+    "svelte": "^1.60.1"
   },
   "scripts": {
     "build": "rollup -c",
