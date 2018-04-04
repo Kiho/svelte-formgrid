@@ -1,16 +1,6 @@
-<div class="form-group row">
-    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
-    <div class="col-8">
-        <div class="form-group">
-            <:Component { fieldtype } :settings bind:value bind:submit bind:error :uuid />
-            {{#if submit && error}}
-            <div class="invalid-feedback">
-                {{error}}
-            </div>
-            {{/if}}
-        </div>       
-    </div>
-</div>
+<Field :uuid :label bind:submit bind:error >
+    <:Component { fieldtype } :settings bind:value bind:submit bind:error :uuid />
+</Field>
 
 <script>
     import {
@@ -20,9 +10,13 @@
         CurrencyInput,
         MaskedInput,
     } from './inputs';
+    import Field from './Field.html';
     import fieldBase from './inputs/field-base';
 
     export default {
+        components: {
+            Field,
+        },
         data() {
             return { 
                 uuid: fieldBase.makeUniqueId(),
@@ -60,9 +54,3 @@
         }
     }
 </script>
-
-<style>
-    .invalid-feedback {
-        display: block;
-    }
-</style>
