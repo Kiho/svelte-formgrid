@@ -14,7 +14,7 @@
         },
         data: fieldBase.fieldData,
         oncreate() {
-            this.set({ settings: this.get() });
+            this.set({ settings: this.get(), uuid: fieldBase.makeUniqueId() });
         }, 
     }
 </script>

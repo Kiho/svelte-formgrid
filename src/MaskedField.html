@@ -1,5 +1,5 @@
 <Field :uuid :label bind:submit bind:error >
-    <MaskedInput {{...settings}} bind:value bind:submit bind:error uniqueId={{true}} />
+    <MaskedInput {{...settings}} bind:value bind:submit bind:error />
 </Field>
 
 <script>
@@ -14,7 +14,7 @@
         },
         data: fieldBase.fieldData,
         oncreate() {
-            this.set({ settings: this.get() });
+            this.set({ settings: this.get(), uuid: fieldBase.makeUniqueId() });
         },
     }
 </script>

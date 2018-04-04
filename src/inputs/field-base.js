@@ -1,5 +1,3 @@
-import { makeUniqueId } from '../utils';
-
 const intialData = { 
     type: 'text',
     uuid: '',
@@ -26,7 +24,7 @@ export default {
         return Object.assign({}, {settings: null}, intialData);
     },
     oncreate(p) {
-        const { uniqueId, settings } = p.get();
+        const { uuid, settings } = p.get();
         const element = p.refs.input;
         element.onkeyup = (e) => {
             if (p.get('submit')) {
@@ -37,8 +35,8 @@ export default {
         element.setError = (error) => {
             p.set({error, submit: true});
         };
-        if (uniqueId) {
-            element.setAttribute('id', makeUniqueId());
+        if (uuid) {
+            element.setAttribute('id', uuid);
         } 
         if (settings) {
             this.mergeProps(p, settings);
@@ -61,4 +59,10 @@ export default {
         }                            
         p.set(n);
     },
+    makeUniqueId() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+            return v.toString(16);
+        });
+    }
 }

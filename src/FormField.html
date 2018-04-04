@@ -2,7 +2,7 @@
     <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
     <div class="col-8">
         <div class="form-group">
-            <:Component { fieldtype } :settings bind:value bind:submit bind:error uniqueId={{true}} />
+            <:Component { fieldtype } :settings bind:value bind:submit bind:error :uuid />
             {{#if submit && error}}
             <div class="invalid-feedback">
                 {{error}}
@@ -20,21 +20,21 @@
         CurrencyInput,
         MaskedInput,
     } from './inputs';
-    import { mergeProps } from './utils';
+    import fieldBase from './inputs/field-base';
 
     export default {
         data() {
             return { 
-                uuid: '',
+                uuid: fieldBase.makeUniqueId(),
                 label: '',
                 submit: false,
                 error: '',
                 value: '',
-                settings: {}
+                settings: null
             }
         },
         oncreate() {
-            mergeProps(this, 'settings');
+            fieldBase.mergeProps(this, this.get('settings'));
         },
         computed:{
             fieldtype: settings => {
