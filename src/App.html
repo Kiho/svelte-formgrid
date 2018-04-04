@@ -1,4 +1,5 @@
 <div class="container-fluid">
+    <!-- <TextField label="TextField" bind:value="text" /> -->
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
     {{#if show}}     
     <FormGrid columns={{columndata}} bind:item="item" ref:form ></FormGrid>
@@ -9,6 +10,7 @@
 <script>
 import FormGrid from './FormGrid.html';
 import DataGrid from './DataGrid.html';
+import TextField from './TextField.html';
 
 const stateList = [
    {id: 'AL',name: 'ALABAMA'},
@@ -80,11 +82,13 @@ export default {
     components: {
         FormGrid,
         DataGrid,
+        TextField,
     },
     data() {
         return { 
             item: data[0],
             show: true,
+            text: 'text---',
             fielddata: [
                 {
                     label: 'Field', 

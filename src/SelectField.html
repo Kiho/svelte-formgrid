@@ -1,21 +1,20 @@
 <Field :uuid :label bind:submit bind:error >
-    <SelectInput {{...settings}} bind:value />
+    <SelectInput {{...settings}} bind:value bind:value bind:submit bind:error uniqueId={{true}} />
 </Field>
 
 <script>
     import Field from './Field.html';
     import SelectInput from './inputs/SelectInput.html';
     import fieldBase from './inputs/field-base';
-    import { mergeProps } from './utils';
 
     export default {
         components: {
             Field,
             SelectInput
         },
-        data: fieldBase.data,
+        data: fieldBase.fieldData,
         oncreate() {
-            mergeProps(this, 'settings');
-        }, 
+            this.set({ settings: this.get() });
+        },
     }
 </script>

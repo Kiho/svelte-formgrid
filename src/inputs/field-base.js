@@ -1,24 +1,29 @@
 import { makeUniqueId } from '../utils';
 
+const intialData = { 
+    type: 'text',
+    uuid: '',
+    placeholder: '',
+    label: '',
+    inputClass: '',
+    value: '',
+    text: '',
+    class: '',
+    readOnly: false,
+    required: false,
+    pattern: '',
+    validate: null,
+    uniqueId: false,
+    submit: false,
+    error: '',
+};
+
 export default {
     data() {
-        return { 
-            type: 'text',
-            uuid: '',
-            placeholder: '',
-            label: '',
-            inputClass: '',
-            value: '',
-            text: '',
-            class: '',
-            readOnly: false,
-            required: false,
-            pattern: '',
-            validate: null,
-            uniqueId: false,
-            submit: false,
-            error: '',
-        }
+        return Object.assign({}, intialData);
+    },
+    fieldData() {
+        return Object.assign({}, {settings: null}, intialData);
     },
     oncreate(p) {
         const { uniqueId, settings } = p.get();

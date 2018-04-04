@@ -6,16 +6,16 @@
     import Field from './Field.html';
     import TextInput from './inputs/TextInput.html';
     import fieldBase from './inputs/field-base';
-    import { mergeProps } from './utils';
 
     export default {
         components: {
             Field,
             TextInput
         },
-        data: fieldBase.data,
+        data: fieldBase.fieldData,
         oncreate() {
-            mergeProps(this, 'settings');
+            this.set({ settings: this.get() });
         }, 
     }
 </script>
+

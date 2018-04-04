@@ -13,9 +13,9 @@
             Field,
             CurrencyInput
         },
-        data: fieldBase.data,
+        data: fieldBase.fieldData,
         oncreate() {
-            mergeProps(this, 'settings');
-        }, 
+            this.set({ settings: this.get() });
+        },
     }
 </script>
