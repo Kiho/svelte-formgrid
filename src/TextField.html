@@ -1,20 +1,17 @@
-<Field :uuid :label bind:submit bind:error >
-    <TextInput {{...settings}} bind:value bind:submit bind:error />
-</Field>
+<DynamicField {{...settings}} :settings bind:value />
 
 <script>
-    import Field from './Field.html';
-    import TextInput from './inputs/TextInput.html';
     import fieldBase from './inputs/field-base';
+    import DynamicField from './DynamicField.html';
+    import { TextInput } from './inputs';
 
     export default {
         components: {
-            Field,
-            TextInput
+            DynamicField
         },
         data: fieldBase.fieldData,
         oncreate() {
-            this.set({ settings: this.get(), uuid: fieldBase.makeUniqueId() });
+            this.set({ settings: { fieldtype: TextInput, ...this.get() } });
         }, 
     }
 </script>

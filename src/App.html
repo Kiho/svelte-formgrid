@@ -1,5 +1,5 @@
 <div class="container-fluid">
-    <!-- <TextField label="TextField" bind:value="text" /> -->
+    <TextField label="TextField" bind:value="text" placeholder="TextField" />
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
     {{#if show}}     
     <FormGrid columns={{columndata}} bind:item="item" ref:form ></FormGrid>
@@ -88,7 +88,7 @@ export default {
         return { 
             item: data[0],
             show: true,
-            text: 'text---',
+            text: '12345',
             fielddata: [
                 {
                     label: 'Field', 

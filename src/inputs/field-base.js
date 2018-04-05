@@ -1,6 +1,5 @@
 const intialData = { 
     type: 'text',
-    uuid: '',
     placeholder: '',
     label: '',
     inputClass: '',
