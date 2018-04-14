@@ -2,18 +2,26 @@
   "name": "svelte-formgrid",
   "version": "0.1.0",
   "author": "Kiho Chang",
+  "svelte": "src/App.html",
+  "module": "index.mjs",
   "devDependencies": {
+    "faucet": "^0.0.1",
+    "port-authority": "^1.0.3",
+    "puppeteer": "^1.2.0",
     "rollup": "^0.57.1",
-    "rollup-plugin-buble": "^0.19.2",
     "rollup-plugin-commonjs": "^9.1.0",
     "rollup-plugin-node-resolve": "^3.3.0",
     "rollup-plugin-svelte": "^4.1.0",
-    "rollup-plugin-uglify": "^2.0.1",
-    "serve": "^6.4.3",
-    "svelte": "^1.60.1"
+    "serve": "^6.5.3",
+    "svelte": "^1.60.1",
+    "tap-dot": "^1.0.5",
+    "tape-modern": "^1.0.0"
   },
   "scripts": {
     "build": "rollup -c",
+    "pretest": "npm run build",
+    "test": "node test/runner.js | tap-dot",
+    "test:browser": "npm run build && serve test/public",
     "dev": "rollup -c -w",
     "start": "serve public"
   }
