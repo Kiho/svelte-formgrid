@@ -1,4 +1,4 @@
-{{#if edit}}
+{{#if edit || settings.action}}
     <:Component { fieldtype } {{...settings}} bind:value="source[settings.field]" on:change on:click />
 {{elseif displayable}}
     {{ source[settings.field] }}
