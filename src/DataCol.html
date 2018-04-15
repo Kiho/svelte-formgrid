@@ -1,11 +1,11 @@
 {{#if edit}}
-    <:Component { fieldtype } {{...settings}} bind:value="source[settings.field]" on:change />
+    <:Component { fieldtype } {{...settings}} bind:value="source[settings.field]" on:change on:click />
 {{elseif displayable}}
     {{ source[settings.field] }}
 {{/if}}
 
 <script>
-    import { TextInput, NumberInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput } from './inputs';
+    import { TextInput, NumberInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput, ActionButton } from './inputs';
 
     export default {
         data(){
@@ -38,7 +38,10 @@
                             break;
                         case 'checkbox':
                             ft = CheckboxInput;
-                            break;    
+                            break;
+                        case 'action':
+                            ft = ActionButton;
+                            break;
                     }
                 }
                 return ft;

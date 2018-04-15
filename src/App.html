@@ -107,7 +107,15 @@ export default {
                     label: 'Row', 
                     field: 'row',
                     component: 'number',
-                }, 
+                }, {
+                    label: 'Edit', 
+                    field: 'field',
+                    component: 'action',
+                    'class': 'secondary',
+                    action: (row) => {
+                        console.log('DataGrid - action', row)
+                    }
+                },
             ],
             columndata: [
                 {

@@ -1,5 +1,5 @@
-<div class="table-bordered" style="position: relative">
-    <table ref="table" class="table-sm">
+<div style="position: relative">
+    <table ref="table" class="table table-striped {{edit ? 'table-bordered' : ''}}">
         <thead>
             <tr>
                 {{#each columns as column, x}}
@@ -14,9 +14,9 @@
         {{#each rows as row}}
             <tr>
                 {{#each columns as column}}
-                    <td class="{{ column.component || column.action ? 'nopadding' : '' }} {{ column.numeric ? 'numeric' : ''}} {{ column.truncate ? ' truncate' : '' }}" 
+                    <td class="{{ edit && (column.component || column.action) ? 'nopadding' : '' }} {{ column.numeric ? 'numeric' : ''}} {{ column.truncate ? ' truncate' : '' }}" 
 							style="width: {{ column.width ? column.width : 'auto' }}">
-                        <DataCol bind:source="row" settings="{{column}}" :edit on:change="fire('update', { event })" />
+                        <DataCol bind:source="row" settings="{{column}}" :edit on:change="fire('update', { event })" on:click="actionClick(event, row, column.action)" />
                     </td>    
                 {{/each}}
             </tr>
@@ -43,5 +43,22 @@
         computed: {
             colCount: columns => (columns) ? columns.length : 0,
         },
+        methods: {
+            actionClick(event, row, action) {
+                event && event.preventDefault();
+                action && action(row);
+            },
+        }
     }
 </script>
+
+<style>
+    td.nopadding {
+		padding: 0 0;
+	}
+	td.nopadding :global(input) {
+		padding: 0.35rem 0.5rem;
+		border-width: 0;
+		/* background-color: transparent; */
+	}
+</style>

@@ -1,0 +1,13 @@
+<button class="btn btn-{{class}}" on:click="fire('click', event)">{{label}}</button>
+
+<script>
+    export default {
+        data() {
+            return {
+                label: '',
+                class: '',
+                value: false,
+            }
+        }
+    }
+</script>

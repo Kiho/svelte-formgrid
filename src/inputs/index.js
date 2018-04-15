@@ -4,3 +4,4 @@ export { default as SelectInput } from './SelectInput.html';
 export { default as TextInput } from './TextInput.html';
 export { default as NumberInput } from './NumberInput.html';
 export { default as CheckboxInput } from './CheckboxInput.html';
+export { default as ActionButton } from './ActionButton.html';
