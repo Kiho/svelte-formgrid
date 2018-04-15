@@ -1,66 +1,46 @@
 import svelte from 'rollup-plugin-svelte';
 import resolve from 'rollup-plugin-node-resolve';
 import commonjs from 'rollup-plugin-commonjs';
-// import buble from 'rollup-plugin-buble';
+import buble from 'rollup-plugin-buble';
 // import uglify from 'rollup-plugin-uglify';
 
+const pack = require('./package.json');
+// , transforms: { forOf: false }
 const production = !process.env.ROLLUP_WATCH;
-
-// export default {
-// 	input: 'src/main.js',	
-// 	output: {
-// 		sourcemap: true,	
-// 		format: 'iife',
-// 		file: 'public/bundle.js',
-// 		name: 'app',
-// 	},
-// 	plugins: [
-// 		svelte({
-// 			// enable run-time checks when not in production
-// 			dev: !production,
-// 			// we'll extract any component CSS out into
-// 			// a separate file — better for performance
-// 			css: css => {
-// 				css.write('public/bundle.css');
-// 			},
-
-// 			// enable https://svelte.technology/guide#state-management
-// 			store: true,
-
-// 			// this results in smaller CSS files
-// 			cascade: false
-// 		}),
-
-// 		// If you have external dependencies installed from
-// 		// npm, you'll most likely need these plugins. In
-// 		// some cases you'll need additional configuration —
-// 		// consult the documentation for details:
-// 		// https://github.com/rollup/rollup-plugin-commonjs
-// 		resolve(),
-// 		commonjs(),
-
-// 		// If we're building for production (npm run build
-// 		// instead of npm run dev), transpile and minify
-// 		production && buble({ exclude: 'node_modules/**' }),
-// 		production && uglify()
-// 	]
-// };
+console.log('production', production);
 
 export default [
-	// {
-	// 	input: 'src/VirtualList.html',
-	// 	output: [
-	// 		{ file: pkg.module, 'format': 'es' },
-	// 		{ file: pkg.main, 'format': 'umd', name: 'VirtualList' }
-	// 	],
-	// 	plugins: [
-	// 		resolve(),
-	// 		svelte({
-	// 			cascade: false,
-	// 			store: true
-	// 		})
-	// 	]
-	// },
+	{
+		input: './src/index.js',	
+		output:[
+			{	
+				sourcemap: true,
+				format: 'cjs',
+				file: pack.main,
+				name: 'formgrid',	
+			}, {
+				sourcemap: true,
+				format: "es",
+				file: pack.jsnext,
+				name: 'formgrid',
+			}
+		],
+		plugins: [
+			svelte({
+				// enable run-time checks when not in production
+				dev: !production,
+			}),
+
+			// If you have external dependencies installed from
+			// npm, you'll most likely need these plugins. In
+			// some cases you'll need additional configuration —
+			// consult the documentation for details:
+			// https://github.com/rollup/rollup-plugin-commonjs
+			resolve(),
+			commonjs(),
+			production && buble({ objectAssign: 'Object.assign', exclude: 'node_modules/**' }),
+		],
+	},
 
 	{
 		input: 'src/main.js',	

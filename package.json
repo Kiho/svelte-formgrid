@@ -3,17 +3,26 @@
   "version": "0.1.0",
   "author": "Kiho Chang",
   "svelte": "src/App.html",
-  "module": "index.mjs",
+  "main": "dist/formgrid.js",
+  "jsnext": "dist/formgrid.es.js",
+  "keywords": [
+    "svelte",
+    "typescript"
+  ],
+  "files": [
+    "dist"
+  ],
   "devDependencies": {
     "faucet": "^0.0.1",
     "port-authority": "^1.0.3",
     "puppeteer": "^1.2.0",
     "rollup": "^0.57.1",
+    "rollup-plugin-buble": "^0.19.2",
     "rollup-plugin-commonjs": "^9.1.0",
     "rollup-plugin-node-resolve": "^3.3.0",
     "rollup-plugin-svelte": "^4.1.0",
     "serve": "^6.5.3",
-    "svelte": "^1.60.1",
+    "svelte": "1.60.3",
     "tap-dot": "^1.0.5",
     "tape-modern": "^1.0.0"
   },
