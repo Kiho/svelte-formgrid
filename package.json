@@ -10,7 +10,7 @@
     "typescript"
   ],
   "files": [
-    "dist"
+    "lib"
   ],
   "devDependencies": {
     "faucet": "^0.0.1",
