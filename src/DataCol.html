@@ -1,11 +1,20 @@
 {{#if edit || settings.action}}
     <:Component { fieldtype } {{...settings}} bind:value="source[settings.field]" on:change on:click />
-{{elseif displayable}}
-    {{ source[settings.field] }}
+{{else}}
+    {{ collect(source, settings.field) }}
 {{/if}}
 
 <script>
     import { TextInput, NumberInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput, ActionButton } from './inputs';
+
+    function collect(obj, field) {
+        if (typeof(field) === 'function')
+            return field(obj);
+        else if (typeof(field) === 'string')
+            return obj[field];
+        else
+            return undefined;
+    }
 
     export default {
         data(){
@@ -13,10 +22,10 @@
                 source: {},
             }
         },
+        helpers: {
+            collect
+        },
         computed:{
-            displayable: (source, settings) => {
-                return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
-            },
             fieldtype: settings => {
                 let ft = TextInput;
                 if (settings.component) {
