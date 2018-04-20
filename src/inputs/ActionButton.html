@@ -1,11 +1,11 @@
-<button class="btn btn-{{class}}" on:click="fire('click', event)">{{label}}</button>
+<button class="btn btn-{{className}}" on:click="fire('click', event)">{{label}}</button>
 
 <script>
     export default {
         data() {
             return {
                 label: '',
-                class: '',
+                className: '',
                 value: false,
             }
         }

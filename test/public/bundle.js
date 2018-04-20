@@ -24751,7 +24751,7 @@
 	function data$8() {
 	    return {
 	        label: '',
-	        class: '',
+	        className: '',
 	        value: false,
 	    }
 	}
@@ -24771,7 +24771,7 @@
 
 			h: function hydrate() {
 				addListener(button, "click", click_handler);
-				button.className = button_class_value = "btn btn-" + state.class;
+				button.className = button_class_value = "btn btn-" + state.className;
 			},
 
 			m: function mount(target, anchor) {
@@ -24784,7 +24784,7 @@
 					text.data = state.label;
 				}
 
-				if ((changed.class) && button_class_value !== (button_class_value = "btn btn-" + state.class)) {
+				if ((changed.className) && button_class_value !== (button_class_value = "btn btn-" + state.className)) {
 					button.className = button_class_value;
 				}
 			},
