@@ -5,7 +5,7 @@
     {/if}
     <div class="row {class}">
         {#each row.columns as col}
-        <FormCol bind:source="item" settings="{col}" {edit} />
+        <FormCol settings="{col}" bind:source {edit} />
         {/each}
     </div>
 {/each}
@@ -27,7 +27,10 @@ export default {
         FormCol
     },
     computed:{
-        rows: ({ columns, item }) => {                
+        source: ({ item }) => {
+            return item;
+        },
+        rows: ({ columns }) => {                
             const maxRowNum = Math.max.apply(Math, columns.map(o => o.row))
             const rows = [];
             for (let i = 0; i <= maxRowNum; i++) {
@@ -42,6 +45,7 @@ export default {
                     }
                 }                
             });
+            console.log('computed - rows', rows);
             return rows;
         },
     },

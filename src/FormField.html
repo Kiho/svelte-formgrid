@@ -20,7 +20,6 @@
         data() {
             return { 
                 uuid: fieldBase.makeUniqueId(),
-                label: '',
                 submit: false,
                 error: '',
                 value: '',
@@ -30,7 +29,10 @@
         oncreate() {
             fieldBase.mergeProps(this, this.get().settings);
         },
-        computed:{
+        computed: {
+            label: ({ settings }) => {
+                return settings ? settings.label : '';
+            },
             fieldtype: ({ settings }) => {
                 let ft = TextInput;
                 if (settings.component) {

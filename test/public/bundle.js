@@ -15579,12 +15579,6 @@
 	                // }
 	                // validator.slots.add(slotName);
 	            }
-	            else {
-	                // if (validator.slots.has('default')) {
-	                // 	validator.error(`duplicate default <slot> element`, node.start);
-	                // }
-	                // validator.slots.add('default');
-	            }
 	        }
 	        if (node.name === 'title') {
 	            if (node.attributes.length > 0) {
@@ -16170,9 +16164,7 @@
 	        refCallees.forEach(callee => {
 	            const { parts } = flattenReference(callee);
 	            const ref = parts[1];
-	            if (refs.has(ref)) {
-	                // TODO check method is valid, e.g. `audio.stop()` should be `audio.pause()`
-	            }
+	            if (refs.has(ref)) ;
 	            else {
 	                const match = fuzzymatch(ref, Array.from(refs.keys()));
 	                let message = `'refs.${ref}' does not exist`;
@@ -18811,8 +18803,7 @@
 	                    else if (char === '\\') {
 	                        escaped = true;
 	                    }
-	                    else if (char === quoteMark) {
-	                    }
+	                    else if (char === quoteMark) ;
 	                    else if (char === '"' || char === "'") {
 	                        quoteMark = char;
 	                    }
@@ -22219,9 +22210,7 @@
 	                        const { name } = flattenReference(node);
 	                        if (scope && scope.has(name))
 	                            return;
-	                        if (name === 'event' && isEventHandler) {
-	                            // noop
-	                        }
+	                        if (name === 'event' && isEventHandler) ;
 	                        else if (contexts.has(name)) {
 	                            const contextName = contexts.get(name);
 	                            if (contextName !== name) {
@@ -24539,7 +24528,7 @@
 	    Object.defineProperty(exports, '__esModule', { value: true });
 
 	})));
-	//# sourceMappingURL=svelte.js.map
+
 	});
 
 	unwrapExports(svelte);
@@ -26514,7 +26503,6 @@
 	        });
 	    });
 	}
-	//# sourceMappingURL=tape-modern.esm.js.map
 
 	// setup
 	const target = document.querySelector('main');

@@ -1,10 +1,11 @@
 <div class="container-fluid">
-    <!-- <TextField label="TextField" bind:value="text" placeholder="TextField" />
-    <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid> -->
+    <TextField label="TextField" bind:value="text" placeholder="TextField" />
+    <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
     {#if show}     
     <FormGrid columns={columndata} bind:item ref:form ></FormGrid>
     {/if}
     <button color="primary" on:click="save()">Save</button>
+    <button color="primary" on:click="next()">Next</button>
 </div>
 
 <script>
@@ -85,8 +86,8 @@ export default {
         TextField,
     },
     data() {
-        return { 
-            item: data[0],
+        return {
+            index: 0,
             show: true,
             text: '12345',
             fielddata: [
@@ -126,72 +127,85 @@ export default {
                     readOnly: true,
                     row: 0,
                     col: 'md-3'
-                }, //{
-                //     label: 'First Name',
-                //     field: 'fname',
-                //     component: 'text',
-                //     required: true,
-                //     row: 1,
-                //     col: 'md-3'
-                // }, {
-                //     label: 'Last Name',
-                //     field: 'lname',
-                //     component: 'text',
-                //     row: 1,
-                //     col: 'md-3'
-                // }, {
-                //     label: 'Age',
-                //     field: 'age',
-                //     component: 'number',
-                //     row: 2,
-                //     col: 'md-3'
-                // }, {
-                //     label: 'Rate',
-                //     field: 'rate',
-                //     component: 'currency',
-                //     row: 2,
-                //     col: 'md-3'
-                // }, {
-                //     label: 'State',
-                //     field: 'state',
-                //     optionList: stateList,
-                //     component: 'select',
-                //     row: 2,
-                //     col: 'md-3'    
-                // }, {
-                //     label: 'Zip',
-                //     field: 'zipCode',
-                //     component: 'masked',
-                //     pattern: '^(\\d{5})', 
-                //     placeholder: 'XXXXX',
-                //     maxlength: 5,
-                //     row: 3,
-                //     col: 'md-3'    
-                // }, {
-                //     label: 'Phone',
-                //     field: 'phone',
-                //     component: 'masked',
-                //     pattern: '\\d{3}\-\\d{3}\-\\d{4}', 
-                //     placeholder: 'XXX-XXX-XXXX',
-                //     maxlength: 20,
-                //     row: 3,
-                //     col: 'md-3'    
-                // }
+                }, {
+                    label: 'First Name',
+                    field: 'fname',
+                    component: 'text',
+                    required: true,
+                    row: 1,
+                    col: 'md-3'
+                }, {
+                    label: 'Last Name',
+                    field: 'lname',
+                    component: 'text',
+                    row: 1,
+                    col: 'md-3'
+                }, {
+                    label: 'Age',
+                    field: 'age',
+                    component: 'number',
+                    row: 2,
+                    col: 'md-3'
+                }, {
+                    label: 'Rate',
+                    field: 'rate',
+                    component: 'currency',
+                    row: 2,
+                    col: 'md-3'
+                }, {
+                    label: 'State',
+                    field: 'state',
+                    optionList: stateList,
+                    component: 'select',
+                    row: 2,
+                    col: 'md-3'    
+                }, {
+                    label: 'Zip',
+                    field: 'zipCode',
+                    component: 'masked',
+                    pattern: '^(\\d{5})', 
+                    placeholder: 'XXXXX',
+                    maxlength: 5,
+                    row: 3,
+                    col: 'md-3'    
+                }, {
+                    label: 'Phone',
+                    field: 'phone',
+                    component: 'masked',
+                    pattern: '\\d{3}\-\\d{3}\-\\d{4}', 
+                    placeholder: 'XXX-XXX-XXXX',
+                    maxlength: 20,
+                    row: 3,
+                    col: 'md-3'    
+                }
             ]                
         }
     },
-    oncreate () {
-        const data1 =  data[1];
-        setTimeout(() => {
-            const data2 = data1;
-            this.set({ item: data2 });
-        }, 2000);
-        this.on('update', (e) => {
-            this.set({ show: false });
-            this.set({ show: true });
-        })
+    oncreate() {
+        // const data1 =  data[1];
+        // setTimeout(() => {
+        //     const data2 = data1;
+        //     this.set({ item: data2 });
+        // }, 2000);
+        // this.on('update', (e) => {
+        //     console.log('update');
+        //     this.set({ show: false });
+        //     console.log('update: false');
+        //     this.set({ show: true });
+        //     console.log('update: true');
+        // })
+    },
+    computed:{
+        item: ({ index }) => {
+            console.log('app - computed - data[index]', index, data[index]);
+            return data[index];
+        },
     },
     methods: {
+        next() {
+            const { index } = this.get();
+            this.set({ index: index + 1 });
+        },
         save() {
             const { item } = this.get();
             const form = this.refs.form.refs.form;

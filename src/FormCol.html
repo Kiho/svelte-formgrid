@@ -1,8 +1,8 @@
 <div class={classes}>
     {#if edit}
-        <FormField bind:value="source[settings.field]" {settings}/>
+        <FormField bind:value="source[field]" {settings}/>
     {:elseif displayable}
-        { source[settings.field] }
+        { source[field] }
     {/if}
 </div>
 <script>
@@ -29,7 +29,10 @@
             },
             displayable: ({ source, settings }) => {
                 return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
-            }
+            },
+            field: ({ settings }) => {              
+                return settings.field;
+            },
         }
     }
 </script>
