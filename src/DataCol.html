@@ -1,8 +1,8 @@
-{{#if edit || settings.action}}
-    <:Component { fieldtype } {{...settings}} bind:value="source[settings.field]" on:change on:click />
-{{else}}
-    {{ collect(source, settings.field) }}
-{{/if}}
+{#if edit || settings.action}
+    <svelte:component this="{ fieldtype }" {...settings} bind:value="source[settings.field]" on:change on:click />
+{:else}
+    { collect(source, settings.field) }
+{/if}
 
 <script>
     import { TextInput, NumberInput, SelectInput, CurrencyInput, MaskedInput, CheckboxInput, ActionButton } from './inputs';
@@ -26,7 +26,7 @@
             collect
         },
         computed:{
-            fieldtype: settings => {
+            fieldtype: ({ settings }) => {
                 let ft = TextInput;
                 if (settings.component) {
                     switch (settings.component.toLowerCase()) {

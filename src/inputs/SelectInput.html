@@ -1,11 +1,11 @@
-<select class="form-control {{inputClass}}" bind:value="value" ref:input on:change="fire('change', event)">
-    {{#each optionList as opt}}
-        {{#if typeof optionList[0] === 'string'}}
-        <option>{{opt}}</option>
-        {{else}}
-        <option value={{opt[optionValue]}}>{{getOptionName(opt)}}</option>                    
-        {{/if}}
-    {{/each}}
+<select class="form-control {inputClass}" bind:value="value" ref:input on:change="fire('change', event)">
+    {#each optionList as opt}
+        {#if typeof optionList[0] === 'string'}
+        <option>{opt}</option>
+        {:else}
+        <option value={opt[optionValue]}>{getOptionName(opt)}</option>                    
+        {/if}
+    {/each}
 </select>
 
 <script>

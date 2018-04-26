@@ -1,26 +1,26 @@
 <div style="position: relative">
-    <table ref="table" class="table table-striped table-sm {{edit ? 'table-bordered' : ''}}">
+    <table ref="table" class="table table-striped table-sm {edit ? 'table-bordered' : ''}">
         <thead>
             <tr>
-                {{#each columns as column, x}}
-                <th style="width: {{ column.width ? column.width : 'auto' }}">
-                    {{column.label}}
+                {#each columns as column, x}
+                <th style="width: { column.width ? column.width : 'auto' }">
+                    {column.label}
                 </th>
-                {{/each}}
+                {/each}
             </tr>
         </thead>
 
         <tbody>
-        {{#each rows as row}}
+        {#each rows as row}
             <tr>
-                {{#each columns as column}}
-                    <td class="{{ ((!edit && column.action) || edit) ? 'nopadding' : '' }} {{ column.numeric ? 'numeric' : ''}} {{ column.truncate ? ' truncate' : '' }}" 
-							style="width: {{ column.width ? column.width : 'auto' }}">
-                        <DataCol bind:source="row" settings="{{column}}" :edit on:change="fire('update', { event })" on:click="actionClick(event, row, column.action)" />
+                {#each columns as column}
+                    <td class="{ ((!edit && column.action) || edit) ? 'nopadding' : '' } { column.numeric ? 'numeric' : ''} { column.truncate ? ' truncate' : '' }" 
+							style="width: { column.width ? column.width : 'auto' }">
+                        <DataCol bind:source="row" settings="{column}" {edit} on:change="fire('update', { event })" on:click="actionClick(event, row, column.action)" />
                     </td>    
-                {{/each}}
+                {/each}
             </tr>
-        {{/each}}
+        {/each}
         </tbody>
     </table>    
 </div>
@@ -41,7 +41,7 @@
             DataCol
         },
         computed: {
-            colCount: columns => (columns) ? columns.length : 0,
+            colCount: ({ columns }) => (columns) ? columns.length : 0,
         },
         methods: {
             actionClick(event, row, action) {

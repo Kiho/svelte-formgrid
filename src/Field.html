@@ -1,13 +1,13 @@
 <div class="form-group row">
-    <label class="col-4 col-form-label" for={{uuid}}>{{label}}</label>
+    <label class="col-4 col-form-label" for={uuid}>{label}</label>
     <div class="col-8">
         <div class="form-group">
             <slot></slot>
-            {{#if submit && error}}
+            {#if submit && error}
             <div class="invalid-feedback">
-                {{message}}
+                {message}
             </div>
-            {{/if}}
+            {/if}
         </div>       
     </div>
 </div>
@@ -23,7 +23,7 @@
             }
         },
         computed:{
-            message: (submit, error) => {                
+            message: ({ submit, error }) => {                
                 if (submit) {
                     return error;
                 }

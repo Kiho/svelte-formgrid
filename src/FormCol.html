@@ -1,9 +1,9 @@
-<div class={{classes}}>
-    {{#if edit}}
-        <FormField bind:value="source[settings.field]" :settings/>
-    {{elseif displayable}}
-        {{ source[settings.field] }}
-    {{/if}}
+<div class={classes}>
+    {#if edit}
+        <FormField bind:value="source[settings.field]" {settings}/>
+    {:elseif displayable}
+        { source[settings.field] }
+    {/if}
 </div>
 <script>
     import FormField from './FormField.html';
@@ -15,10 +15,11 @@
         data(){
             return {
                 source: {},
+                settings: {}
             }
         },
         computed:{
-            classes: (settings) => {                
+            classes: ({ settings }) => {                
                 if (settings.col) {
                     let cols = settings.col.split(' ');
                     cols = cols.filter(x => x && x.trim()).map(x=> 'col-' + x);
@@ -26,7 +27,7 @@
                 }
                 return '';
             },
-            displayable: (source, settings) => {
+            displayable: ({ source, settings }) => {
                 return source && (source.hasOwnProperty(settings.field) && source[settings.field] != null);
             }
         }

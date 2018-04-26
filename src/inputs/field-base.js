@@ -26,7 +26,7 @@ export default {
         const { uuid, settings } = p.get();
         const element = p.refs.input;
         element.onkeyup = (e) => {
-            if (p.get('submit')) {
+            if (p.get().submit) {
                 const error = element.checkValidity() ? '' : element.validationMessage;
                 p.set({error});
             }

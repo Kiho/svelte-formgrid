@@ -1,14 +1,14 @@
 <form class="form-horizontal" ref:form>
-{{#each rows as row}}
-    {{#if row.subtitle}}
-    <div class="row subtitle">{{row.subtitle}}</div>
-    {{/if}}
-    <div class="row {{class}}">
-        {{#each row.columns as col}}
-        <FormCol bind:source="item" settings="{{col}}" :edit />
-        {{/each}}
+{#each rows as row}
+    {#if row.subtitle}
+    <div class="row subtitle">{row.subtitle}</div>
+    {/if}
+    <div class="row {class}">
+        {#each row.columns as col}
+        <FormCol bind:source="item" settings="{col}" {edit} />
+        {/each}
     </div>
-{{/each}}
+{/each}
 </form>
 
 <script>
@@ -27,7 +27,7 @@ export default {
         FormCol
     },
     computed:{
-        rows: (columns) => {                
+        rows: ({ columns, item }) => {                
             const maxRowNum = Math.max.apply(Math, columns.map(o => o.row))
             const rows = [];
             for (let i = 0; i <= maxRowNum; i++) {

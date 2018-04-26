@@ -1,5 +1,5 @@
-<Field :uuid :label bind:submit bind:error >
-    <:Component { fieldtype } {{...settings}} bind:value bind:submit bind:error :uuid />
+<Field {uuid} {label} bind:submit bind:error >
+    <svelte:component this="{ fieldtype }" {...settings} bind:value bind:submit bind:error {uuid} />
 </Field>
 
 <script>
@@ -28,10 +28,10 @@
             }
         },
         oncreate() {
-            fieldBase.mergeProps(this, this.get('settings'));
+            fieldBase.mergeProps(this, this.get().settings);
         },
         computed:{
-            fieldtype: settings => {
+            fieldtype: ({ settings }) => {
                 let ft = TextInput;
                 if (settings.component) {
                     switch (settings.component.toLowerCase()) {

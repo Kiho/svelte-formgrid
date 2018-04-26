@@ -1,12 +1,12 @@
 <input type="text"
     ref:input 
-    class="form-control masked {{inputClass}}" 
-    id={{uuid}}
+    class="form-control masked {inputClass}" 
+    id={uuid}
     bind:value="text"
-    readonly="{{readOnly}}"
-    :required 
-    :pattern
-    :placeholder               
+    readonly="{readOnly}"
+    {required} 
+    {pattern}
+    {placeholder}               
     on:input="handleChange(event)" 
     on:change="fire('change', event)"       
     />
@@ -16,11 +16,14 @@
     
     export default {
         data: fieldBase.data,
-        oncreate() {
+        onstate({ changed, current }) {
             fieldBase.oncreate(this);
-            this.observe('value', value => {
-                this.set({ text: value });
-            }, { init: true });
+            if (changed.value) {
+                this.set({ text: changed.value });
+            }
+            // this.observe('value', value => {
+            //     this.set({ text: value });
+            // }, { init: true });
         },
         methods: {
             handleChange(e) {
@@ -35,7 +38,7 @@
                 const isCharsetPresent = charset,
                     maskedNumber = 'XMDY',
                     maskedLetter = '_',
-                    placeholder = isCharsetPresent || this.get('placeholder'),
+                    placeholder = isCharsetPresent || this.get().placeholder,
                     value = e.target.value, l = placeholder.length;
                 let i, j, isInt, isLetter, strippedValue, matchesNumber, matchesLetter, newValue = '';
 
