@@ -187,13 +187,13 @@ export default {
         //     const data2 = data1;
         //     this.set({ item: data2 });
         // }, 2000);
-        // this.on('update', (e) => {
-        //     console.log('update');
-        //     this.set({ show: false });
-        //     console.log('update: false');
-        //     this.set({ show: true });
-        //     console.log('update: true');
-        // })
+        this.on('update', (e) => {
+            console.log('update');
+            this.set({ show: false });
+            console.log('update: false');
+            this.set({ show: true });
+            console.log('update: true');
+        })
     },
     computed:{
         item: ({ index }) => {
