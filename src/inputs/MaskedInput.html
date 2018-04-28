@@ -16,14 +16,21 @@
     
     export default {
         data: fieldBase.data,
+        // oncreate() {
+        // // onstate({ changed, current }) {
+        //     fieldBase.oncreate(this);
+        //     // if (changed.value) {
+        //     //     this.set({ text: changed.value });
+        //     // }
+        //     // this.observe('value', value => {
+        //     //     this.set({ text: value });
+        //     // }, { init: true });
+        // },
         onstate({ changed, current }) {
             fieldBase.oncreate(this);
             if (changed.value) {
-                this.set({ text: changed.value });
+                this.set({ text: current.value });
             }
-            // this.observe('value', value => {
-            //     this.set({ text: value });
-            // }, { init: true });
         },
         methods: {
             handleChange(e) {
