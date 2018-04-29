@@ -1,7 +1,6 @@
 <input type="text"
     ref:input 
     class="form-control masked {inputClass}" 
-    id={uuid}
     bind:value="text"
     readonly="{readOnly}"
     {required} 
@@ -16,18 +15,10 @@
     
     export default {
         data: fieldBase.data,
-        // oncreate() {
-        // // onstate({ changed, current }) {
-        //     fieldBase.oncreate(this);
-        //     // if (changed.value) {
-        //     //     this.set({ text: changed.value });
-        //     // }
-        //     // this.observe('value', value => {
-        //     //     this.set({ text: value });
-        //     // }, { init: true });
-        // },
-        onstate({ changed, current }) {
+        oncreate() {
             fieldBase.oncreate(this);
+        },
+        onstate({ changed, current }) {
             if (changed.value) {
                 this.set({ text: current.value });
             }

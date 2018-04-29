@@ -15579,12 +15579,6 @@
 	                // }
 	                // validator.slots.add(slotName);
 	            }
-	            else {
-	                // if (validator.slots.has('default')) {
-	                // 	validator.error(`duplicate default <slot> element`, node.start);
-	                // }
-	                // validator.slots.add('default');
-	            }
 	        }
 	        if (node.name === 'title') {
 	            if (node.attributes.length > 0) {
@@ -16170,9 +16164,7 @@
 	        refCallees.forEach(callee => {
 	            const { parts } = flattenReference(callee);
 	            const ref = parts[1];
-	            if (refs.has(ref)) {
-	                // TODO check method is valid, e.g. `audio.stop()` should be `audio.pause()`
-	            }
+	            if (refs.has(ref)) ;
 	            else {
 	                const match = fuzzymatch(ref, Array.from(refs.keys()));
 	                let message = `'refs.${ref}' does not exist`;
@@ -18811,8 +18803,7 @@
 	                    else if (char === '\\') {
 	                        escaped = true;
 	                    }
-	                    else if (char === quoteMark) {
-	                    }
+	                    else if (char === quoteMark) ;
 	                    else if (char === '"' || char === "'") {
 	                        quoteMark = char;
 	                    }
@@ -22219,9 +22210,7 @@
 	                        const { name } = flattenReference(node);
 	                        if (scope && scope.has(name))
 	                            return;
-	                        if (name === 'event' && isEventHandler) {
-	                            // noop
-	                        }
+	                        if (name === 'event' && isEventHandler) ;
 	                        else if (contexts.has(name)) {
 	                            const contextName = contexts.get(name);
 	                            if (contextName !== name) {
@@ -24925,8 +24914,10 @@
 	    },
 	};
 
-	function onstate({ changed, current }) {
+	function oncreate() {
 	    fieldBase.oncreate(this);
+	}
+	function onstate({ changed, current }) {
 	    if (changed.value) {
 	        this.set({ text: current.value });
 	    }
@@ -24960,7 +24951,6 @@
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "text");
 				input.className = input_class_value = "form-control masked " + state.inputClass;
-				input.id = state.uuid;
 				input.readOnly = state.readOnly;
 				input.required = state.required;
 				input.pattern = state.pattern;
@@ -24978,10 +24968,6 @@
 				if (!input_updating) input.value = state.text;
 				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control masked " + state.inputClass)) {
 					input.className = input_class_value;
-				}
-
-				if (changed.uuid) {
-					input.id = state.uuid;
 				}
 
 				if (changed.readOnly) {
@@ -25029,6 +25015,7 @@
 
 		this.root._oncreate.push(() => {
 			onstate.call(this, { changed: assignTrue({}, this._state), current: this._state });
+			oncreate.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -25047,7 +25034,7 @@
 
 	var data$1 = fieldBase.data;
 
-	function oncreate() {
+	function oncreate$1() {
 	    fieldBase.oncreate(this);
 	}
 	function create_main_fragment$1(component, state) {
@@ -25131,7 +25118,7 @@
 		this._fragment = create_main_fragment$1(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate.call(this);
+			oncreate$1.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -25158,7 +25145,7 @@
 	        optionValue: 'id'
 	    }
 	}
-	function oncreate$1() {
+	function oncreate$2() {
 	    fieldBase.oncreate(this);
 	}
 	function create_main_fragment$2(component, state) {
@@ -25419,7 +25406,7 @@
 		this._fragment = create_main_fragment$2(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate$1.call(this);
+			oncreate$2.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -25972,7 +25959,7 @@
 
 	var data$6 = fieldBase.data;
 
-	function oncreate$2() {
+	function oncreate$3() {
 	    fieldBase.oncreate(this);
 	}
 	function create_main_fragment$6(component, state) {
@@ -26056,7 +26043,7 @@
 		this._fragment = create_main_fragment$6(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate$2.call(this);
+			oncreate$3.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -26221,7 +26208,7 @@
 
 	var data$9 = fieldBase.fieldData;
 
-	function oncreate$3() {
+	function oncreate$4() {
 	    this.set({ settings: { fieldtype: TextInput, ...this.get() } });
 	}
 	function create_main_fragment$9(component, state) {
@@ -26303,7 +26290,7 @@
 		this._fragment = create_main_fragment$9(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate$3.call(this);
+			oncreate$4.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -26533,26 +26520,33 @@
 
 	// setup
 	const target = document.querySelector('main');
-	console.log('target', target);
-	function normalize(html) {
+
+	function normalize(html, ignoreId) {
 		const div = document.createElement('div');
-		div.innerHTML = html
+		let newHtml = html
 			.replace(/<!--.+?-->/g, '')
 			.replace(/svelte-ref-\w+=""/g, '')
 			.replace(/\s*svelte-\w+\s*/g, '')
 			.replace(/class=""/g, '')
 			.replace(/>\s+/g, '>')
 			.replace(/\s+</g, '<')
-			.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-			.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
 			.replace(/<!--[^>]*-->/g,'');
-
+		if (ignoreId) {
+			newHtml = newHtml
+				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
+				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
+		}
+		div.innerHTML = newHtml;
 		div.normalize();
 		return div.innerHTML;
 	}
 
 	assert.htmlEqual = (a, b, msg) => {
 		assert.equal(normalize(a), normalize(b));
+	};
+
+	assert.htmlEqualIgnoreId = (a, b, msg) => {
+		assert.equal(normalize(a, true), normalize(b, true));
 	};
 
 	// test TextField
@@ -26565,14 +26559,12 @@
 			}
 	    });
 
-	    t1.equal(1, 1);
-	    t1.htmlEqual(target.innerHTML, `
+	    t1.htmlEqualIgnoreId(target.innerHTML, `
         <div class="form-group row">
             <label class="col-4 col-form-label" for="38e615fc-0c98-4789-867a-74144f0dc309">text</label>
             <div class="col-8">
                 <div class="form-group">
                     <input type="text" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-                    <!----><!---->
                 </div>
             </div>
         </div>
@@ -26582,35 +26574,50 @@
 	});
 
 	// test TextInput
-	test('with no data, creates <TextInput /> elements', t2 => {
+	test('with no data, creates <input type="text" /> elements', t2 => {
 		const textInput = new TextInput({
 			target,
-			data: {
-				value: 'value',
-				label: 'text'
-			}
+			data: { value: 'value' }
 		});
+
 		t2.htmlEqual(target.innerHTML, `
-		<input type="text" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-		<!----><!---->
+		<input type="text" class="form-control " placeholder="">
+	`);	
+		const input = target.firstElementChild;
+		t2.equal(input.value, 'value');
+
+		textInput.destroy();
+	});
+
+	test('change value in <input type="text" /> elements', t2 => {
+		const textInput = new TextInput({
+			target,
+			data: { value: 'value' }
+		});
+
+		textInput.set({ value: 'text', placeholder: 'placeholder' });
+		t2.htmlEqual(target.innerHTML, `
+		<input type="text" class="form-control " placeholder="placeholder">
 	`);
+		const input = target.firstElementChild;
+		t2.equal(input.value, 'text');
 
 		textInput.destroy();
 	});
 
 	// test NumberInput
-	test('with no data, creates <TextInput /> elements', t3 => {
+	test('with no data, creates <input type="number" /> elements', t3 => {
 		const numberInput = new NumberInput({
 			target,
-			data: {
-				value: 'value',
-				label: 'text'
-			}
+			data: { value: '1' }
 		});
+
 		t3.htmlEqual(target.innerHTML, `
-		<input type="number" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-		<!----><!---->
+		<input type="number" class="form-control " placeholder="">
 	`);
+
+		const input = target.firstElementChild;
+		t3.equal(input.value, '1');
 
 		numberInput.destroy();
 	});
@@ -26620,13 +26627,11 @@
 		const selectInput = new SelectInput({
 			target,
 			data: {
-				value: 'value',
-				label: 'text'
+				value: 'value'
 			}
 		});
 		t4.htmlEqual(target.innerHTML, `
-		<select class="form-control " id="38e615fc-0c98-4789-867a-74144f0dc309"></select>
-		<!----><!---->
+		<select class="form-control "></select>
 	`);
 
 		selectInput.destroy();
@@ -26637,12 +26642,11 @@
 		const maskedInput = new MaskedInput({
 			target,
 			data: {
-				value: 'value',
-				label: 'text'
+				value: 'value'
 			}
 		});
 		t5.htmlEqual(target.innerHTML, `
-		<input type="text" class="form-control masked " id="842e3cdd-2303-4233-a26d-f8f0393f2906" pattern="" placeholder="">
+		<input type="text" class="form-control masked " pattern="" placeholder="">
 	`);
 
 		maskedInput.destroy();

@@ -8,26 +8,33 @@ import { assert, test, done } from 'tape-modern';
 
 // setup
 const target = document.querySelector('main');
-console.log('target', target);
-function normalize(html) {
+
+function normalize(html, ignoreId) {
 	const div = document.createElement('div');
-	div.innerHTML = html
+	let newHtml = html
 		.replace(/<!--.+?-->/g, '')
 		.replace(/svelte-ref-\w+=""/g, '')
 		.replace(/\s*svelte-\w+\s*/g, '')
 		.replace(/class=""/g, '')
 		.replace(/>\s+/g, '>')
 		.replace(/\s+</g, '<')
-		.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-		.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
 		.replace(/<!--[^>]*-->/g,'');
-
+	if (ignoreId) {
+		newHtml = newHtml
+			.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
+			.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
+	}
+	div.innerHTML = newHtml;
 	div.normalize();
 	return div.innerHTML;
 }
 
 assert.htmlEqual = (a, b, msg) => {
 	assert.equal(normalize(a), normalize(b));
+};
+
+assert.htmlEqualIgnoreId = (a, b, msg) => {
+	assert.equal(normalize(a, true), normalize(b, true));
 };
 
 // test TextField
@@ -40,14 +47,12 @@ test('with no data, creates <TextField /> elements', t1 => {
 		}
     });
 
-    t1.equal(1, 1);
-    t1.htmlEqual(target.innerHTML, `
+    t1.htmlEqualIgnoreId(target.innerHTML, `
         <div class="form-group row">
             <label class="col-4 col-form-label" for="38e615fc-0c98-4789-867a-74144f0dc309">text</label>
             <div class="col-8">
                 <div class="form-group">
                     <input type="text" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-                    <!----><!---->
                 </div>
             </div>
         </div>
@@ -57,35 +62,50 @@ test('with no data, creates <TextField /> elements', t1 => {
 });
 
 // test TextInput
-test('with no data, creates <TextInput /> elements', t2 => {
+test('with no data, creates <input type="text" /> elements', t2 => {
 	const textInput = new TextInput({
 		target,
-		data: {
-			value: 'value',
-			label: 'text'
-		}
+		data: { value: 'value' }
 	});
+
 	t2.htmlEqual(target.innerHTML, `
-		<input type="text" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-		<!----><!---->
+		<input type="text" class="form-control " placeholder="">
+	`);	
+	const input = target.firstElementChild;
+	t2.equal(input.value, 'value');
+
+	textInput.destroy();
+});
+
+test('change value in <input type="text" /> elements', t2 => {
+	const textInput = new TextInput({
+		target,
+		data: { value: 'value' }
+	});
+
+	textInput.set({ value: 'text', placeholder: 'placeholder' });
+	t2.htmlEqual(target.innerHTML, `
+		<input type="text" class="form-control " placeholder="placeholder">
 	`);
+	const input = target.firstElementChild;
+	t2.equal(input.value, 'text');
 
 	textInput.destroy();
 });
 
 // test NumberInput
-test('with no data, creates <TextInput /> elements', t3 => {
+test('with no data, creates <input type="number" /> elements', t3 => {
 	const numberInput = new NumberInput({
 		target,
-		data: {
-			value: 'value',
-			label: 'text'
-		}
+		data: { value: '1' }
 	});
+
 	t3.htmlEqual(target.innerHTML, `
-		<input type="number" class="form-control " placeholder="" id="38e615fc-0c98-4789-867a-74144f0dc309">
-		<!----><!---->
+		<input type="number" class="form-control " placeholder="">
 	`);
+
+	const input = target.firstElementChild;
+	t3.equal(input.value, '1');
 
 	numberInput.destroy();
 });
@@ -95,13 +115,11 @@ test('with no data, creates <TextInput /> elements', t4 => {
 	const selectInput = new SelectInput({
 		target,
 		data: {
-			value: 'value',
-			label: 'text'
+			value: 'value'
 		}
 	});
 	t4.htmlEqual(target.innerHTML, `
-		<select class="form-control " id="38e615fc-0c98-4789-867a-74144f0dc309"></select>
-		<!----><!---->
+		<select class="form-control "></select>
 	`);
 
 	selectInput.destroy();
@@ -112,12 +130,11 @@ test('with no data, creates <TextInput /> elements', t5 => {
 	const maskedInput = new MaskedInput({
 		target,
 		data: {
-			value: 'value',
-			label: 'text'
+			value: 'value'
 		}
 	});
 	t5.htmlEqual(target.innerHTML, `
-		<input type="text" class="form-control masked " id="842e3cdd-2303-4233-a26d-f8f0393f2906" pattern="" placeholder="">
+		<input type="text" class="form-control masked " pattern="" placeholder="">
 	`);
 
 	maskedInput.destroy();
