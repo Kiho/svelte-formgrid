@@ -2,6 +2,7 @@ import svelte from 'rollup-plugin-svelte';
 import resolve from 'rollup-plugin-node-resolve';
 import commonjs from 'rollup-plugin-commonjs';
 import buble from 'rollup-plugin-buble';
+import multiEntry from "rollup-plugin-multi-entry";
 // import uglify from 'rollup-plugin-uglify';
 
 const pack = require('./package.json');
@@ -79,12 +80,13 @@ export default [
 
 	// tests
 	{
-		input: 'test/src/index.js',
+		input: 'test/src/**/*.js',
 		output: {
 			file: 'test/public/bundle.js',
 			format: 'iife'
 		},
 		plugins: [
+			multiEntry(),
 			resolve(),
 			commonjs({
 				namedExports: {

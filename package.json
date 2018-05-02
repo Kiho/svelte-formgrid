@@ -24,7 +24,8 @@
     "serve": "^6.5.3",
     "svelte": "2.1.1",
     "tap-dot": "^1.0.5",
-    "tape-modern": "^1.0.0"
+    "tape-modern": "^1.0.0",
+    "rollup-plugin-multi-entry": "^2.0.2"
   },
   "scripts": {
     "build": "rollup -c",

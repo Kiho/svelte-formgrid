@@ -19,24 +19,12 @@
 
     export default {
         data: fieldBase.data,
-        // onstate({ changed, current }) {
-        //     fieldBase.oncreate(this, true);
-        //     if (changed.value) {
-        //         this.set({ text: formatCurrency(changed.value) });
-        //     }
-        //     // this.observe('value', value => {
-        //     //     this.set({ text: formatCurrency(value) });
-        //     // }, { init: true });
-        // },
         onstate({ changed, current, previous }) {
             fieldBase.oncreate(this, true);
             if (changed.value) {
                 this.set({ text: formatCurrency(current.value) });
             }
         },
-        // oncreate() {
-        //     fieldBase.oncreate(this, true);
-        // },
         methods: {
             blur(text) {
                 let value = text ? toNumber(text) : 0;
