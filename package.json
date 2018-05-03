@@ -1,16 +1,16 @@
 {
   "name": "svelte-formgrid",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Kiho Chang",
-  "svelte": "src/App.html",
-  "main": "lib/formgrid.js",
-  "jsnext": "lib/formgrid.es.js",
+  "svelte": "src/index.js",
+  "main": "dist/formgrid.js",
+  "jsnext": "dist/formgrid.es.js",
   "keywords": [
     "svelte",
     "typescript"
   ],
   "files": [
-    "lib"
+    "dist"
   ],
   "devDependencies": {
     "faucet": "^0.0.1",
