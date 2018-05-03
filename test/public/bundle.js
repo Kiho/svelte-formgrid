@@ -13621,6 +13621,17 @@
 	        ['td', new Set(['td', 'th', 'tr'])],
 	        ['th', new Set(['td', 'th', 'tr'])],
 	    ]);
+	    function parentIsHead(stack) {
+	        let i = stack.length;
+	        while (i--) {
+	            const { type } = stack[i];
+	            if (type === 'Head')
+	                return true;
+	            if (type === 'Element' || type === 'Component')
+	                return false;
+	        }
+	        return false;
+	    }
 	    function tag(parser) {
 	        const start = parser.index++;
 	        let parent = parser.current();
@@ -13665,7 +13676,9 @@
 	        }
 	        const type = metaTags.has(name)
 	            ? metaTags.get(name)
-	            : 'Element'; // TODO in v2, capitalised name means 'Component'
+	            : (/[A-Z]/.test(name[0]) || name === 'svelte:self' || name === 'svelte:component') ? 'Component'
+	                : name === 'title' && parentIsHead(parser.stack) ? 'Title'
+	                    : name === 'slot' && !parser.customElement ? 'Slot' : 'Element';
 	        const element = {
 	            start,
 	            end: null,
@@ -13954,7 +13967,86 @@
 	        });
 	    }
 
+	    function errorOnAssignmentPattern(parser) {
+	        if (parser.eat('=')) {
+	            parser.error({
+	                code: 'invalid-assignment-pattern',
+	                message: 'Assignment patterns are not supported'
+	            }, parser.index - 1);
+	        }
+	    }
+	    function readContext(parser) {
+	        const context = {
+	            start: parser.index,
+	            end: null,
+	            type: null
+	        };
+	        if (parser.eat('[')) {
+	            context.type = 'ArrayPattern';
+	            context.elements = [];
+	            do {
+	                parser.allowWhitespace();
+	                if (parser.template[parser.index] === ',') {
+	                    context.elements.push(null);
+	                }
+	                else {
+	                    context.elements.push(readContext(parser));
+	                    parser.allowWhitespace();
+	                }
+	            } while (parser.eat(','));
+	            errorOnAssignmentPattern(parser);
+	            parser.eat(']', true);
+	        }
+	        else if (parser.eat('{')) {
+	            context.type = 'ObjectPattern';
+	            context.properties = [];
+	            do {
+	                parser.allowWhitespace();
+	                const start = parser.index;
+	                const name = parser.readIdentifier();
+	                const key = {
+	                    start,
+	                    end: parser.index,
+	                    type: 'Identifier',
+	                    name
+	                };
+	                parser.allowWhitespace();
+	                const value = parser.eat(':')
+	                    ? (parser.allowWhitespace(), readContext(parser))
+	                    : key;
+	                const property = {
+	                    start,
+	                    end: value.end,
+	                    type: 'Property',
+	                    key,
+	                    value
+	                };
+	                context.properties.push(property);
+	                parser.allowWhitespace();
+	            } while (parser.eat(','));
+	            errorOnAssignmentPattern(parser);
+	            parser.eat('}', true);
+	        }
+	        else {
+	            const name = parser.readIdentifier();
+	            if (name) {
+	                context.type = 'Identifier';
+	                context.end = parser.index;
+	                context.name = name;
+	            }
+	            else {
+	                parser.error({
+	                    code: 'invalid-context',
+	                    message: 'Expected a name, array pattern or object pattern'
+	                });
+	            }
+	            errorOnAssignmentPattern(parser);
+	        }
+	        return context;
+	    }
+
 	    const whitespace = /[ \t\r\n]/;
+	    const dimensions = /^(?:offset|client)(?:Width|Height)$/;
 
 	    function trimStart(str) {
 	        let i = 0;
@@ -14186,37 +14278,7 @@
 	            if (type === 'EachBlock') {
 	                parser.eat('as', true);
 	                parser.requireWhitespace();
-	                if (parser.eat('[')) {
-	                    parser.allowWhitespace();
-	                    block.destructuredContexts = [];
-	                    do {
-	                        parser.allowWhitespace();
-	                        const destructuredContext = parser.readIdentifier();
-	                        if (!destructuredContext)
-	                            parser.error({
-	                                code: `expected-name`,
-	                                message: `Expected name`
-	                            });
-	                        block.destructuredContexts.push(destructuredContext);
-	                        parser.allowWhitespace();
-	                    } while (parser.eat(','));
-	                    if (!block.destructuredContexts.length)
-	                        parser.error({
-	                            code: `expected-name`,
-	                            message: `Expected name`
-	                        });
-	                    block.context = block.destructuredContexts.join('_');
-	                    parser.allowWhitespace();
-	                    parser.eat(']', true);
-	                }
-	                else {
-	                    block.context = parser.readIdentifier();
-	                    if (!block.context)
-	                        parser.error({
-	                            code: `expected-name`,
-	                            message: `Expected name`
-	                        });
-	                }
+	                block.context = readContext(parser);
 	                parser.allowWhitespace();
 	                if (parser.eat(',')) {
 	                    parser.allowWhitespace();
@@ -14230,19 +14292,7 @@
 	                }
 	                if (parser.eat('(')) {
 	                    parser.allowWhitespace();
-	                    const expression = readExpression(parser);
-	                    // TODO eventually, we should accept any expression, and turn
-	                    // it into a function. For now, assume that every expression
-	                    // follows the `foo.id` pattern, and equates to `@id`
-	                    if (expression.type !== 'MemberExpression' ||
-	                        expression.property.computed ||
-	                        expression.property.type !== 'Identifier') {
-	                        parser.error({
-	                            code: `invalid-key`,
-	                            message: 'invalid key'
-	                        }, expression.start);
-	                    }
-	                    block.key = expression.property.name;
+	                    block.key = readExpression(parser);
 	                    parser.allowWhitespace();
 	                    parser.eat(')', true);
 	                    parser.allowWhitespace();
@@ -14475,6 +14525,7 @@
 	            }
 	            this.template = template.replace(/\s+$/, '');
 	            this.filename = options.filename;
+	            this.customElement = options.customElement;
 	            this.allowBindings = options.bind !== false;
 	            this.index = 0;
 	            this.stack = [];
@@ -14778,14 +14829,6 @@
 	                validator.error(computation.value, {
 	                    code: `invalid-computed-arguments`,
 	                    message: `Computed properties must take a single argument`
-	                });
-	            }
-	            const param = params[0];
-	            if (param.type !== 'ObjectPattern') {
-	                // TODO post-v2, allow the entire object to be passed in
-	                validator.error(computation.value, {
-	                    code: `invalid-computed-argument`,
-	                    message: `Computed property argument must be a destructured object pattern`
 	                });
 	            }
 	        });
@@ -15470,11 +15513,15 @@
 	    }
 
 	    function flattenReference(node) {
+	        if (node.type === 'Expression')
+	            throw new Error('bad');
+	        const nodes = [];
 	        const parts = [];
 	        const propEnd = node.end;
 	        while (node.type === 'MemberExpression') {
 	            if (node.computed)
 	                return null;
+	            nodes.unshift(node.property);
 	            parts.unshift(node.property.name);
 	            node = node.object;
 	        }
@@ -15485,7 +15532,8 @@
 	        if (!name)
 	            return null;
 	        parts.unshift(name);
-	        return { name, parts, keypath: `${name}[✂${propStart}-${propEnd}✂]` };
+	        nodes.unshift(node);
+	        return { name, nodes, parts, keypath: `${name}[✂${propStart}-${propEnd}✂]` };
 	    }
 
 	    function list$2(items, conjunction = 'or') {
@@ -15539,17 +15587,41 @@
 	        });
 	    }
 
-	    const svg$1 = /^(?:altGlyph|altGlyphDef|altGlyphItem|animate|animateColor|animateMotion|animateTransform|circle|clipPath|color-profile|cursor|defs|desc|discard|ellipse|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDistantLight|feDropShadow|feFlood|feFuncA|feFuncB|feFuncG|feFuncR|feGaussianBlur|feImage|feMerge|feMergeNode|feMorphology|feOffset|fePointLight|feSpecularLighting|feSpotLight|feTile|feTurbulence|filter|font|font-face|font-face-format|font-face-name|font-face-src|font-face-uri|foreignObject|g|glyph|glyphRef|hatch|hatchpath|hkern|image|line|linearGradient|marker|mask|mesh|meshgradient|meshpatch|meshrow|metadata|missing-glyph|mpath|path|pattern|polygon|polyline|radialGradient|rect|set|solidcolor|stop|switch|symbol|text|textPath|tref|tspan|unknown|use|view|vkern)$/;
-	    function validateElement(validator, node, refs, refCallees, stack, elementStack, isComponent) {
-	        if (isComponent) {
-	            validator.used.components.add(node.name);
-	        }
-	        if (!isComponent && /^[A-Z]/.test(node.name[0])) {
+	    function validateComponent(validator, node, refs, refCallees, stack, elementStack) {
+	        if (node.name !== 'svelte:self' && node.name !== 'svelte:component' && !validator.components.has(node.name)) {
 	            validator.error(node, {
 	                code: `missing-component`,
 	                message: `${node.name} component is not defined`
 	            });
 	        }
+	        validator.used.components.add(node.name);
+	        node.attributes.forEach((attribute) => {
+	            if (attribute.type === 'Ref') {
+	                if (!refs.has(attribute.name))
+	                    refs.set(attribute.name, []);
+	                refs.get(attribute.name).push(node);
+	            }
+	            if (attribute.type === 'EventHandler') {
+	                validator.used.events.add(attribute.name);
+	                validateEventHandlerCallee(validator, attribute, refCallees);
+	            }
+	            else if (attribute.type === 'Transition') {
+	                validator.error(attribute, {
+	                    code: `invalid-transition`,
+	                    message: `Transitions can only be applied to DOM elements, not components`
+	                });
+	            }
+	            else if (attribute.type === 'Action') {
+	                validator.error(attribute, {
+	                    code: `invalid-action`,
+	                    message: `Actions can only be applied to DOM elements, not components`
+	                });
+	            }
+	        });
+	    }
+
+	    const svg$1 = /^(?:altGlyph|altGlyphDef|altGlyphItem|animate|animateColor|animateMotion|animateTransform|circle|clipPath|color-profile|cursor|defs|desc|discard|ellipse|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDistantLight|feDropShadow|feFlood|feFuncA|feFuncB|feFuncG|feFuncR|feGaussianBlur|feImage|feMerge|feMergeNode|feMorphology|feOffset|fePointLight|feSpecularLighting|feSpotLight|feTile|feTurbulence|filter|font|font-face|font-face-format|font-face-name|font-face-src|font-face-uri|foreignObject|g|glyph|glyphRef|hatch|hatchpath|hkern|image|line|linearGradient|marker|mask|mesh|meshgradient|meshpatch|meshrow|metadata|missing-glyph|mpath|path|pattern|polygon|polyline|radialGradient|rect|set|solidcolor|stop|switch|symbol|text|textPath|tref|tspan|unknown|use|view|vkern)$/;
+	    function validateElement(validator, node, refs, refCallees, stack, elementStack) {
 	        if (elementStack.length === 0 && validator.namespace !== svg && svg$1.test(node.name)) {
 	            validator.warn(node, {
 	                code: `missing-namespace`,
@@ -15605,7 +15677,7 @@
 	                    refs.set(attribute.name, []);
 	                refs.get(attribute.name).push(node);
 	            }
-	            if (!isComponent && attribute.type === 'Binding') {
+	            if (attribute.type === 'Binding') {
 	                const { name } = attribute;
 	                if (name === 'value') {
 	                    if (node.name !== 'input' &&
@@ -15672,6 +15744,26 @@
 	                        });
 	                    }
 	                }
+	                else if (dimensions.test(name)) {
+	                    if (node.name === 'svg' && (name === 'offsetWidth' || name === 'offsetHeight')) {
+	                        validator.error(attribute, {
+	                            code: 'invalid-binding',
+	                            message: `'${attribute.name}' is not a valid binding on <svg>. Use '${name.replace('offset', 'client')}' instead`
+	                        });
+	                    }
+	                    else if (svg$1.test(node.name)) {
+	                        validator.error(attribute, {
+	                            code: 'invalid-binding',
+	                            message: `'${attribute.name}' is not a valid binding on SVG elements`
+	                        });
+	                    }
+	                    else if (isVoidElementName(node.name)) {
+	                        validator.error(attribute, {
+	                            code: 'invalid-binding',
+	                            message: `'${attribute.name}' is not a valid binding on void elements like <${node.name}>. Use a wrapper element instead`
+	                        });
+	                    }
+	                }
 	                else {
 	                    validator.error(attribute, {
 	                        code: `invalid-binding`,
@@ -15684,12 +15776,6 @@
 	                validateEventHandlerCallee(validator, attribute, refCallees);
 	            }
 	            else if (attribute.type === 'Transition') {
-	                if (isComponent) {
-	                    validator.error(attribute, {
-	                        code: `invalid-transition`,
-	                        message: `Transitions can only be applied to DOM elements, not components`
-	                    });
-	                }
 	                validator.used.transitions.add(attribute.name);
 	                const bidi = attribute.intro && attribute.outro;
 	                if (hasTransition) {
@@ -15738,17 +15824,11 @@
 	                        });
 	                    }
 	                }
-	                if (attribute.name === 'slot' && !isComponent) {
+	                if (attribute.name === 'slot') {
 	                    checkSlotAttribute(validator, node, attribute, stack);
 	                }
 	            }
 	            else if (attribute.type === 'Action') {
-	                if (isComponent) {
-	                    validator.error(attribute, {
-	                        code: `invalid-action`,
-	                        message: `Actions can only be applied to DOM elements, not components`
-	                    });
-	                }
 	                validator.used.actions.add(attribute.name);
 	                if (!validator.actions.has(attribute.name)) {
 	                    validator.error(attribute, {
@@ -15787,10 +15867,12 @@
 	        let i = stack.length;
 	        while (i--) {
 	            const parent = stack[i];
-	            if (parent.type === 'Element') {
+	            if (parent.type === 'Component') {
 	                // if we're inside a component or a custom element, gravy
 	                if (parent.name === 'svelte:self' || parent.name === 'svelte:component' || validator.components.has(parent.name))
 	                    return;
+	            }
+	            else if (parent.type === 'Element') {
 	                if (/-/.test(parent.name))
 	                    return;
 	            }
@@ -15869,10 +15951,52 @@
 	        }
 	        // TODO ensure only valid elements are included here
 	        node.children.forEach(node => {
-	            if (node.type !== 'Element')
+	            if (node.type !== 'Element' && node.type !== 'Title')
 	                return; // TODO handle {{#if}} and friends?
-	            validateElement(validator, node, refs, refCallees, [], [], false);
+	            validateElement(validator, node, refs, refCallees, [], []);
 	        });
+	    }
+
+	    function validateSlot(validator, node) {
+	        node.attributes.forEach(attr => {
+	            if (attr.type !== 'Attribute') {
+	                validator.error(attr, {
+	                    code: `invalid-slot-directive`,
+	                    message: `<slot> cannot have directives`
+	                });
+	            }
+	            if (attr.name !== 'name') {
+	                validator.error(attr, {
+	                    code: `invalid-slot-attribute`,
+	                    message: `"name" is the only attribute permitted on <slot> elements`
+	                });
+	            }
+	            if (attr.value.length !== 1 || attr.value[0].type !== 'Text') {
+	                validator.error(attr, {
+	                    code: `dynamic-slot-name`,
+	                    message: `<slot> name cannot be dynamic`
+	                });
+	            }
+	            const slotName = attr.value[0].data;
+	            if (slotName === 'default') {
+	                validator.error(attr, {
+	                    code: `invalid-slot-name`,
+	                    message: `default is a reserved word — it cannot be used as a slot name`
+	                });
+	            }
+	            // TODO should duplicate slots be disallowed? Feels like it's more likely to be a
+	            // bug than anything. Perhaps it should be a warning
+	            // if (validator.slots.has(slotName)) {
+	            // 	validator.error(`duplicate '${slotName}' <slot> element`, nameAttribute.start);
+	            // }
+	            // validator.slots.add(slotName);
+	        });
+	        // if (node.attributes.length === 0) && validator.slots.has('default')) {
+	        // 	validator.error(node, {
+	        // 		code: `duplicate-slot`,
+	        // 		message: `duplicate default <slot> element`
+	        // 	});
+	        // }
 	    }
 
 	    function getStaticAttributeValue(node, name) {
@@ -16092,6 +16216,27 @@
 	        }
 	    }
 
+	    function unpackDestructuring(contexts, node, tail) {
+	        if (!node)
+	            return;
+	        if (node.type === 'Identifier') {
+	            contexts.push({
+	                key: node,
+	                tail
+	            });
+	        }
+	        else if (node.type === 'ArrayPattern') {
+	            node.elements.forEach((element, i) => {
+	                unpackDestructuring(contexts, element, `${tail}[${i}]`);
+	            });
+	        }
+	        else if (node.type === 'ObjectPattern') {
+	            node.properties.forEach((property) => {
+	                unpackDestructuring(contexts, property.value, `${tail}.${property.key.name}`);
+	            });
+	        }
+	    }
+
 	    function isEmptyBlock(node) {
 	        if (!/Block$/.test(node.type) || !node.children)
 	            return false;
@@ -16112,29 +16257,27 @@
 	            else if (node.type === 'Head') {
 	                validateHead(validator, node, refs, refCallees);
 	            }
+	            else if (node.type === 'Slot') {
+	                validateSlot(validator, node);
+	            }
+	            else if (node.type === 'Component' || node.name === 'svelte:self' || node.name === 'svelte:component') {
+	                validateComponent(validator, node, refs, refCallees, stack, elementStack);
+	            }
 	            else if (node.type === 'Element') {
-	                const isComponent = node.name === 'svelte:self' ||
-	                    node.name === 'svelte:component' ||
-	                    validator.components.has(node.name);
-	                validateElement(validator, node, refs, refCallees, stack, elementStack, isComponent);
-	                if (!isComponent) {
-	                    a11y(validator, node, elementStack);
-	                }
+	                validateElement(validator, node, refs, refCallees, stack, elementStack);
+	                a11y(validator, node, elementStack);
 	            }
 	            else if (node.type === 'EachBlock') {
-	                if (validator.helpers.has(node.context)) {
-	                    let c = node.expression.end;
-	                    // find start of context
-	                    while (/\s/.test(validator.source[c]))
-	                        c += 1;
-	                    c += 2;
-	                    while (/\s/.test(validator.source[c]))
-	                        c += 1;
-	                    validator.warn({ start: c, end: c + node.context.length }, {
-	                        code: `each-context-clash`,
-	                        message: `Context clashes with a helper. Rename one or the other to eliminate any ambiguity`
-	                    });
-	                }
+	                const contexts = [];
+	                unpackDestructuring(contexts, node.context, '');
+	                contexts.forEach(prop => {
+	                    if (validator.helpers.has(prop.key.name)) {
+	                        validator.warn(prop.key, {
+	                            code: `each-context-clash`,
+	                            message: `Context clashes with a helper. Rename one or the other to eliminate any ambiguity`
+	                        });
+	                    }
+	                });
 	            }
 	            if (validator.options.dev && isEmptyBlock(node)) {
 	                validator.warn(node, {
@@ -16179,7 +16322,7 @@
 	    }
 
 	    class Validator {
-	        constructor(parsed, source, stats, options) {
+	        constructor(ast, source, stats, options) {
 	            this.source = source;
 	            this.stats = stats;
 	            this.filename = options.filename;
@@ -16229,7 +16372,7 @@
 	            });
 	        }
 	    }
-	    function validate(parsed, source, stylesheet, stats, options) {
+	    function validate(ast, source, stylesheet, stats, options) {
 	        const { onerror, name, filename, dev, parser } = options;
 	        try {
 	            if (name && !/^[a-zA-Z_$][a-zA-Z_$0-9]*$/.test(name)) {
@@ -16245,23 +16388,23 @@
 	                    toString: () => message,
 	                });
 	            }
-	            const validator = new Validator(parsed, source, stats, {
+	            const validator = new Validator(ast, source, stats, {
 	                name,
 	                filename,
 	                dev,
 	                parser
 	            });
-	            if (parsed.js) {
-	                validateJs(validator, parsed.js);
+	            if (ast.js) {
+	                validateJs(validator, ast.js);
 	            }
-	            if (parsed.css) {
+	            if (ast.css) {
 	                stylesheet.validate(validator);
 	            }
-	            if (parsed.html) {
-	                validateHtml(validator, parsed.html);
+	            if (ast.html) {
+	                validateHtml(validator, ast.html);
 	            }
 	            // need to do a second pass of the JS, now that we've analysed the markup
-	            if (parsed.js && validator.defaultExport) {
+	            if (ast.js && validator.defaultExport) {
 	                const categories = {
 	                    components: 'component',
 	                    // TODO helpers require a bit more work — need to analyse all expressions
@@ -16295,6 +16438,221 @@
 	            }
 	        }
 	    }
+
+	    const start = /\n(\t+)/;
+	    function deindent(strings, ...values) {
+	        const indentation = start.exec(strings[0])[1];
+	        const pattern = new RegExp(`^${indentation}`, 'gm');
+	        let result = strings[0].replace(start, '').replace(pattern, '');
+	        let trailingIndentation = getTrailingIndentation(result);
+	        for (let i = 1; i < strings.length; i += 1) {
+	            let expression = values[i - 1];
+	            const string = strings[i].replace(pattern, '');
+	            if (Array.isArray(expression)) {
+	                expression = expression.length ? expression.join('\n') : null;
+	            }
+	            if (expression || expression === '') {
+	                const value = String(expression).replace(/\n/g, `\n${trailingIndentation}`);
+	                result += value + string;
+	            }
+	            else {
+	                let c = result.length;
+	                while (/\s/.test(result[c - 1]))
+	                    c -= 1;
+	                result = result.slice(0, c) + string;
+	            }
+	            trailingIndentation = getTrailingIndentation(result);
+	        }
+	        return result.trim().replace(/\t+$/gm, '');
+	    }
+	    function getTrailingIndentation(str) {
+	        let i = str.length;
+	        while (str[i - 1] === ' ' || str[i - 1] === '\t')
+	            i -= 1;
+	        return str.slice(i, str.length);
+	    }
+
+	    function stringify(data, options = {}) {
+	        return JSON.stringify(escape(data, options));
+	    }
+	    function escape(data, { onlyEscapeAtSymbol = false } = {}) {
+	        return data.replace(onlyEscapeAtSymbol ? /(%+|@+)/g : /(%+|@+|#+)/g, (match) => {
+	            return match + match[0];
+	        });
+	    }
+	    const escaped = {
+	        '&': '&amp;',
+	        '<': '&lt;',
+	        '>': '&gt;',
+	    };
+	    function escapeHTML(html) {
+	        return String(html).replace(/[&<>]/g, match => escaped[match]);
+	    }
+	    function escapeTemplate(str) {
+	        return str.replace(/(\${|`|\\)/g, '\\$1');
+	    }
+
+	    var ChunkType;
+	    (function (ChunkType) {
+	        ChunkType[ChunkType["Line"] = 0] = "Line";
+	        ChunkType[ChunkType["Block"] = 1] = "Block";
+	    })(ChunkType || (ChunkType = {}));
+	    class CodeBuilder {
+	        constructor(str = '') {
+	            this.result = str;
+	            const initial = str
+	                ? /\n/.test(str) ? ChunkType.Block : ChunkType.Line
+	                : null;
+	            this.first = initial;
+	            this.last = initial;
+	            this.lastCondition = null;
+	            this.conditionStack = [];
+	            this.indent = '';
+	        }
+	        addConditional(condition, body) {
+	            this.reifyConditions();
+	            body = body.replace(/^/gm, `${this.indent}\t`);
+	            if (condition === this.lastCondition) {
+	                this.result += `\n${body}`;
+	            }
+	            else {
+	                if (this.lastCondition) {
+	                    this.result += `\n${this.indent}}`;
+	                }
+	                this.result += `${this.last === ChunkType.Block ? '\n\n' : '\n'}${this.indent}if (${condition}) {\n${body}`;
+	                this.lastCondition = condition;
+	            }
+	            this.last = ChunkType.Block;
+	        }
+	        addLine(line) {
+	            this.reifyConditions();
+	            if (this.lastCondition) {
+	                this.result += `\n${this.indent}}`;
+	                this.lastCondition = null;
+	            }
+	            if (this.last === ChunkType.Block) {
+	                this.result += `\n\n${this.indent}${line}`;
+	            }
+	            else if (this.last === ChunkType.Line) {
+	                this.result += `\n${this.indent}${line}`;
+	            }
+	            else {
+	                this.result += line;
+	            }
+	            this.last = ChunkType.Line;
+	            if (!this.first)
+	                this.first = ChunkType.Line;
+	        }
+	        addLineAtStart(line) {
+	            this.reifyConditions();
+	            if (this.first === ChunkType.Block) {
+	                this.result = `${line}\n\n${this.indent}${this.result}`;
+	            }
+	            else if (this.first === ChunkType.Line) {
+	                this.result = `${line}\n${this.indent}${this.result}`;
+	            }
+	            else {
+	                this.result += line;
+	            }
+	            this.first = ChunkType.Line;
+	            if (!this.last)
+	                this.last = ChunkType.Line;
+	        }
+	        addBlock(block) {
+	            this.reifyConditions();
+	            if (this.indent)
+	                block = block.replace(/^/gm, `${this.indent}`);
+	            if (this.lastCondition) {
+	                this.result += `\n${this.indent}}`;
+	                this.lastCondition = null;
+	            }
+	            if (this.result) {
+	                this.result += `\n\n${this.indent}${block}`;
+	            }
+	            else {
+	                this.result += block;
+	            }
+	            this.last = ChunkType.Block;
+	            if (!this.first)
+	                this.first = ChunkType.Block;
+	        }
+	        addBlockAtStart(block) {
+	            this.reifyConditions();
+	            if (this.result) {
+	                this.result = `${block}\n\n${this.indent}${this.result}`;
+	            }
+	            else {
+	                this.result += block;
+	            }
+	            this.first = ChunkType.Block;
+	            if (!this.last)
+	                this.last = ChunkType.Block;
+	        }
+	        isEmpty() {
+	            return this.result === '';
+	        }
+	        pushCondition(condition) {
+	            this.conditionStack.push({ condition, used: false });
+	        }
+	        popCondition() {
+	            const { used } = this.conditionStack.pop();
+	            this.indent = repeat('\t', this.conditionStack.length);
+	            if (used)
+	                this.addLine('}');
+	        }
+	        reifyConditions() {
+	            for (let i = 0; i < this.conditionStack.length; i += 1) {
+	                const condition = this.conditionStack[i];
+	                if (!condition.used) {
+	                    const line = `if (${condition.condition}) {`;
+	                    if (this.last === ChunkType.Block) {
+	                        this.result += `\n\n${this.indent}${line}`;
+	                    }
+	                    else if (this.last === ChunkType.Line) {
+	                        this.result += `\n${this.indent}${line}`;
+	                    }
+	                    else {
+	                        this.result += line;
+	                    }
+	                    this.last = ChunkType.Line;
+	                    if (!this.first)
+	                        this.first = ChunkType.Line;
+	                    this.indent = repeat('\t', this.conditionStack.length);
+	                    condition.used = true;
+	                }
+	            }
+	        }
+	        toString() {
+	            return this.result.trim() + (this.lastCondition ? `\n}` : ``);
+	        }
+	    }
+
+	    var globalWhitelist = new Set([
+	        'Array',
+	        'Boolean',
+	        'console',
+	        'Date',
+	        'decodeURI',
+	        'decodeURIComponent',
+	        'encodeURI',
+	        'encodeURIComponent',
+	        'Infinity',
+	        'Intl',
+	        'isFinite',
+	        'isNaN',
+	        'JSON',
+	        'Map',
+	        'Math',
+	        'NaN',
+	        'Number',
+	        'Object',
+	        'parseFloat',
+	        'parseInt',
+	        'RegExp',
+	        'Set',
+	        'String',
+	        'undefined',
+	    ]);
 
 	    var charToInteger = {};
 	    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
@@ -17609,390 +17967,6 @@
 	    	return this;
 	    };
 
-	    function annotateWithScopes(expression) {
-	        const globals = new Set();
-	        let scope = new Scope(null, false);
-	        walk(expression, {
-	            enter(node, parent) {
-	                if (/Function/.test(node.type)) {
-	                    if (node.type === 'FunctionDeclaration') {
-	                        scope.declarations.add(node.id.name);
-	                    }
-	                    else {
-	                        node._scope = scope = new Scope(scope, false);
-	                        if (node.id)
-	                            scope.declarations.add(node.id.name);
-	                    }
-	                    node.params.forEach((param) => {
-	                        extractNames(param).forEach(name => {
-	                            scope.declarations.add(name);
-	                        });
-	                    });
-	                }
-	                else if (/For(?:In|Of)Statement/.test(node.type)) {
-	                    node._scope = scope = new Scope(scope, true);
-	                }
-	                else if (node.type === 'BlockStatement') {
-	                    node._scope = scope = new Scope(scope, true);
-	                }
-	                else if (/(Function|Class|Variable)Declaration/.test(node.type)) {
-	                    scope.addDeclaration(node);
-	                }
-	                else if (isReference(node, parent)) {
-	                    if (!scope.has(node.name)) {
-	                        globals.add(node.name);
-	                    }
-	                }
-	            },
-	            leave(node) {
-	                if (node._scope) {
-	                    scope = scope.parent;
-	                }
-	            },
-	        });
-	        return { scope, globals };
-	    }
-	    class Scope {
-	        constructor(parent, block) {
-	            this.parent = parent;
-	            this.block = block;
-	            this.declarations = new Set();
-	        }
-	        addDeclaration(node) {
-	            if (node.kind === 'var' && !this.block && this.parent) {
-	                this.parent.addDeclaration(node);
-	            }
-	            else if (node.type === 'VariableDeclaration') {
-	                node.declarations.forEach((declarator) => {
-	                    extractNames(declarator.id).forEach(name => {
-	                        this.declarations.add(name);
-	                    });
-	                });
-	            }
-	            else {
-	                this.declarations.add(node.id.name);
-	            }
-	        }
-	        has(name) {
-	            return (this.declarations.has(name) || (this.parent && this.parent.has(name)));
-	        }
-	    }
-	    function extractNames(param) {
-	        const names = [];
-	        extractors[param.type](names, param);
-	        return names;
-	    }
-	    const extractors = {
-	        Identifier(names, param) {
-	            names.push(param.name);
-	        },
-	        ObjectPattern(names, param) {
-	            param.properties.forEach((prop) => {
-	                extractors[prop.value.type](names, prop.value);
-	            });
-	        },
-	        ArrayPattern(names, param) {
-	            param.elements.forEach((element) => {
-	                if (element)
-	                    extractors[element.type](names, element);
-	            });
-	        },
-	        RestElement(names, param) {
-	            extractors[param.argument.type](names, param.argument);
-	        },
-	        AssignmentPattern(names, param) {
-	            extractors[param.left.type](names, param.left);
-	        },
-	    };
-
-	    const start = /\n(\t+)/;
-	    function deindent(strings, ...values) {
-	        const indentation = start.exec(strings[0])[1];
-	        const pattern = new RegExp(`^${indentation}`, 'gm');
-	        let result = strings[0].replace(start, '').replace(pattern, '');
-	        let trailingIndentation = getTrailingIndentation(result);
-	        for (let i = 1; i < strings.length; i += 1) {
-	            let expression = values[i - 1];
-	            const string = strings[i].replace(pattern, '');
-	            if (Array.isArray(expression)) {
-	                expression = expression.length ? expression.join('\n') : null;
-	            }
-	            if (expression || expression === '') {
-	                const value = String(expression).replace(/\n/g, `\n${trailingIndentation}`);
-	                result += value + string;
-	            }
-	            else {
-	                let c = result.length;
-	                while (/\s/.test(result[c - 1]))
-	                    c -= 1;
-	                result = result.slice(0, c) + string;
-	            }
-	            trailingIndentation = getTrailingIndentation(result);
-	        }
-	        return result.trim().replace(/\t+$/gm, '');
-	    }
-	    function getTrailingIndentation(str) {
-	        let i = str.length;
-	        while (str[i - 1] === ' ' || str[i - 1] === '\t')
-	            i -= 1;
-	        return str.slice(i, str.length);
-	    }
-
-	    function stringify(data, options = {}) {
-	        return JSON.stringify(escape(data, options));
-	    }
-	    function escape(data, { onlyEscapeAtSymbol = false } = {}) {
-	        return data.replace(onlyEscapeAtSymbol ? /(%+|@+)/g : /(%+|@+|#+)/g, (match) => {
-	            return match + match[0];
-	        });
-	    }
-	    const escaped = {
-	        '&': '&amp;',
-	        '<': '&lt;',
-	        '>': '&gt;',
-	    };
-	    function escapeHTML(html) {
-	        return String(html).replace(/[&<>]/g, match => escaped[match]);
-	    }
-	    function escapeTemplate(str) {
-	        return str.replace(/(\${|`|\\)/g, '\\$1');
-	    }
-
-	    var ChunkType;
-	    (function (ChunkType) {
-	        ChunkType[ChunkType["Line"] = 0] = "Line";
-	        ChunkType[ChunkType["Block"] = 1] = "Block";
-	    })(ChunkType || (ChunkType = {}));
-	    class CodeBuilder {
-	        constructor(str = '') {
-	            this.result = str;
-	            const initial = str
-	                ? /\n/.test(str) ? ChunkType.Block : ChunkType.Line
-	                : null;
-	            this.first = initial;
-	            this.last = initial;
-	            this.lastCondition = null;
-	            this.conditionStack = [];
-	            this.indent = '';
-	        }
-	        addConditional(condition, body) {
-	            this.reifyConditions();
-	            body = body.replace(/^/gm, `${this.indent}\t`);
-	            if (condition === this.lastCondition) {
-	                this.result += `\n${body}`;
-	            }
-	            else {
-	                if (this.lastCondition) {
-	                    this.result += `\n${this.indent}}`;
-	                }
-	                this.result += `${this.last === ChunkType.Block ? '\n\n' : '\n'}${this.indent}if (${condition}) {\n${body}`;
-	                this.lastCondition = condition;
-	            }
-	            this.last = ChunkType.Block;
-	        }
-	        addLine(line) {
-	            this.reifyConditions();
-	            if (this.lastCondition) {
-	                this.result += `\n${this.indent}}`;
-	                this.lastCondition = null;
-	            }
-	            if (this.last === ChunkType.Block) {
-	                this.result += `\n\n${this.indent}${line}`;
-	            }
-	            else if (this.last === ChunkType.Line) {
-	                this.result += `\n${this.indent}${line}`;
-	            }
-	            else {
-	                this.result += line;
-	            }
-	            this.last = ChunkType.Line;
-	            if (!this.first)
-	                this.first = ChunkType.Line;
-	        }
-	        addLineAtStart(line) {
-	            this.reifyConditions();
-	            if (this.first === ChunkType.Block) {
-	                this.result = `${line}\n\n${this.indent}${this.result}`;
-	            }
-	            else if (this.first === ChunkType.Line) {
-	                this.result = `${line}\n${this.indent}${this.result}`;
-	            }
-	            else {
-	                this.result += line;
-	            }
-	            this.first = ChunkType.Line;
-	            if (!this.last)
-	                this.last = ChunkType.Line;
-	        }
-	        addBlock(block) {
-	            this.reifyConditions();
-	            if (this.indent)
-	                block = block.replace(/^/gm, `${this.indent}`);
-	            if (this.lastCondition) {
-	                this.result += `\n${this.indent}}`;
-	                this.lastCondition = null;
-	            }
-	            if (this.result) {
-	                this.result += `\n\n${this.indent}${block}`;
-	            }
-	            else {
-	                this.result += block;
-	            }
-	            this.last = ChunkType.Block;
-	            if (!this.first)
-	                this.first = ChunkType.Block;
-	        }
-	        addBlockAtStart(block) {
-	            this.reifyConditions();
-	            if (this.result) {
-	                this.result = `${block}\n\n${this.indent}${this.result}`;
-	            }
-	            else {
-	                this.result += block;
-	            }
-	            this.first = ChunkType.Block;
-	            if (!this.last)
-	                this.last = ChunkType.Block;
-	        }
-	        isEmpty() {
-	            return this.result === '';
-	        }
-	        pushCondition(condition) {
-	            this.conditionStack.push({ condition, used: false });
-	        }
-	        popCondition() {
-	            const { used } = this.conditionStack.pop();
-	            this.indent = repeat('\t', this.conditionStack.length);
-	            if (used)
-	                this.addLine('}');
-	        }
-	        reifyConditions() {
-	            for (let i = 0; i < this.conditionStack.length; i += 1) {
-	                const condition = this.conditionStack[i];
-	                if (!condition.used) {
-	                    const line = `if (${condition.condition}) {`;
-	                    if (this.last === ChunkType.Block) {
-	                        this.result += `\n\n${this.indent}${line}`;
-	                    }
-	                    else if (this.last === ChunkType.Line) {
-	                        this.result += `\n${this.indent}${line}`;
-	                    }
-	                    else {
-	                        this.result += line;
-	                    }
-	                    this.last = ChunkType.Line;
-	                    if (!this.first)
-	                        this.first = ChunkType.Line;
-	                    this.indent = repeat('\t', this.conditionStack.length);
-	                    condition.used = true;
-	                }
-	            }
-	        }
-	        toString() {
-	            return this.result.trim() + (this.lastCondition ? `\n}` : ``);
-	        }
-	    }
-
-	    var globalWhitelist = new Set([
-	        'Array',
-	        'Boolean',
-	        'console',
-	        'Date',
-	        'decodeURI',
-	        'decodeURIComponent',
-	        'encodeURI',
-	        'encodeURIComponent',
-	        'Infinity',
-	        'Intl',
-	        'isFinite',
-	        'isNaN',
-	        'JSON',
-	        'Map',
-	        'Math',
-	        'NaN',
-	        'Number',
-	        'Object',
-	        'parseFloat',
-	        'parseInt',
-	        'RegExp',
-	        'Set',
-	        'String',
-	        'undefined',
-	    ]);
-
-	    // this file is auto-generated, do not edit it
-	    const shared = {
-	        "appendNode": "function appendNode(node, target) {\n\ttarget.appendChild(node);\n}",
-	        "insertNode": "function insertNode(node, target, anchor) {\n\ttarget.insertBefore(node, anchor);\n}",
-	        "detachNode": "function detachNode(node) {\n\tnode.parentNode.removeChild(node);\n}",
-	        "detachBetween": "function detachBetween(before, after) {\n\twhile (before.nextSibling && before.nextSibling !== after) {\n\t\tbefore.parentNode.removeChild(before.nextSibling);\n\t}\n}",
-	        "detachBefore": "function detachBefore(after) {\n\twhile (after.previousSibling) {\n\t\tafter.parentNode.removeChild(after.previousSibling);\n\t}\n}",
-	        "detachAfter": "function detachAfter(before) {\n\twhile (before.nextSibling) {\n\t\tbefore.parentNode.removeChild(before.nextSibling);\n\t}\n}",
-	        "reinsertBetween": "function reinsertBetween(before, after, target) {\n\twhile (before.nextSibling && before.nextSibling !== after) {\n\t\ttarget.appendChild(before.parentNode.removeChild(before.nextSibling));\n\t}\n}",
-	        "reinsertChildren": "function reinsertChildren(parent, target) {\n\twhile (parent.firstChild) target.appendChild(parent.firstChild);\n}",
-	        "reinsertAfter": "function reinsertAfter(before, target) {\n\twhile (before.nextSibling) target.appendChild(before.nextSibling);\n}",
-	        "reinsertBefore": "function reinsertBefore(after, target) {\n\tvar parent = after.parentNode;\n\twhile (parent.firstChild !== after) target.appendChild(parent.firstChild);\n}",
-	        "destroyEach": "function destroyEach(iterations) {\n\tfor (var i = 0; i < iterations.length; i += 1) {\n\t\tif (iterations[i]) iterations[i].d();\n\t}\n}",
-	        "createFragment": "function createFragment() {\n\treturn document.createDocumentFragment();\n}",
-	        "createElement": "function createElement(name) {\n\treturn document.createElement(name);\n}",
-	        "createSvgElement": "function createSvgElement(name) {\n\treturn document.createElementNS('http://www.w3.org/2000/svg', name);\n}",
-	        "createText": "function createText(data) {\n\treturn document.createTextNode(data);\n}",
-	        "createComment": "function createComment() {\n\treturn document.createComment('');\n}",
-	        "addListener": "function addListener(node, event, handler) {\n\tnode.addEventListener(event, handler, false);\n}",
-	        "removeListener": "function removeListener(node, event, handler) {\n\tnode.removeEventListener(event, handler, false);\n}",
-	        "setAttribute": "function setAttribute(node, attribute, value) {\n\tnode.setAttribute(attribute, value);\n}",
-	        "setAttributes": "function setAttributes(node, attributes) {\n\tfor (var key in attributes) {\n\t\tif (key in node) {\n\t\t\tnode[key] = attributes[key];\n\t\t} else {\n\t\t\tif (attributes[key] === undefined) removeAttribute(node, key);\n\t\t\telse setAttribute(node, key, attributes[key]);\n\t\t}\n\t}\n}",
-	        "removeAttribute": "function removeAttribute(node, attribute) {\n\tnode.removeAttribute(attribute);\n}",
-	        "setXlinkAttribute": "function setXlinkAttribute(node, attribute, value) {\n\tnode.setAttributeNS('http://www.w3.org/1999/xlink', attribute, value);\n}",
-	        "getBindingGroupValue": "function getBindingGroupValue(group) {\n\tvar value = [];\n\tfor (var i = 0; i < group.length; i += 1) {\n\t\tif (group[i].checked) value.push(group[i].__value);\n\t}\n\treturn value;\n}",
-	        "toNumber": "function toNumber(value) {\n\treturn value === '' ? undefined : +value;\n}",
-	        "timeRangesToArray": "function timeRangesToArray(ranges) {\n\tvar array = [];\n\tfor (var i = 0; i < ranges.length; i += 1) {\n\t\tarray.push({ start: ranges.start(i), end: ranges.end(i) });\n\t}\n\treturn array;\n}",
-	        "children": "function children (element) {\n\treturn Array.from(element.childNodes);\n}",
-	        "claimElement": "function claimElement (nodes, name, attributes, svg) {\n\tfor (var i = 0; i < nodes.length; i += 1) {\n\t\tvar node = nodes[i];\n\t\tif (node.nodeName === name) {\n\t\t\tfor (var j = 0; j < node.attributes.length; j += 1) {\n\t\t\t\tvar attribute = node.attributes[j];\n\t\t\t\tif (!attributes[attribute.name]) node.removeAttribute(attribute.name);\n\t\t\t}\n\t\t\treturn nodes.splice(i, 1)[0]; // TODO strip unwanted attributes\n\t\t}\n\t}\n\n\treturn svg ? createSvgElement(name) : createElement(name);\n}",
-	        "claimText": "function claimText (nodes, data) {\n\tfor (var i = 0; i < nodes.length; i += 1) {\n\t\tvar node = nodes[i];\n\t\tif (node.nodeType === 3) {\n\t\t\tnode.data = data;\n\t\t\treturn nodes.splice(i, 1)[0];\n\t\t}\n\t}\n\n\treturn createText(data);\n}",
-	        "setInputType": "function setInputType(input, type) {\n\ttry {\n\t\tinput.type = type;\n\t} catch (e) {}\n}",
-	        "setStyle": "function setStyle(node, key, value) {\n\tnode.style.setProperty(key, value);\n}",
-	        "selectOption": "function selectOption(select, value) {\n\tfor (var i = 0; i < select.options.length; i += 1) {\n\t\tvar option = select.options[i];\n\n\t\tif (option.__value === value) {\n\t\t\toption.selected = true;\n\t\t\treturn;\n\t\t}\n\t}\n}",
-	        "selectOptions": "function selectOptions(select, value) {\n\tfor (var i = 0; i < select.options.length; i += 1) {\n\t\tvar option = select.options[i];\n\t\toption.selected = ~value.indexOf(option.__value);\n\t}\n}",
-	        "selectValue": "function selectValue(select) {\n\tvar selectedOption = select.querySelector(':checked') || select.options[0];\n\treturn selectedOption && selectedOption.__value;\n}",
-	        "selectMultipleValue": "function selectMultipleValue(select) {\n\treturn [].map.call(select.querySelectorAll(':checked'), function(option) {\n\t\treturn option.__value;\n\t});\n}",
-	        "blankObject": "function blankObject() {\n\treturn Object.create(null);\n}",
-	        "destroy": "function destroy(detach) {\n\tthis.destroy = noop;\n\tthis.fire('destroy');\n\tthis.set = noop;\n\n\tif (detach !== false) this._fragment.u();\n\tthis._fragment.d();\n\tthis._fragment = null;\n\tthis._state = {};\n}",
-	        "destroyDev": "function destroyDev(detach) {\n\tdestroy.call(this, detach);\n\tthis.destroy = function() {\n\t\tconsole.warn('Component was already destroyed');\n\t};\n}",
-	        "_differs": "function _differs(a, b) {\n\treturn a != a ? b == b : a !== b || ((a && typeof a === 'object') || typeof a === 'function');\n}",
-	        "_differsImmutable": "function _differsImmutable(a, b) {\n\treturn a != a ? b == b : a !== b;\n}",
-	        "fire": "function fire(eventName, data) {\n\tvar handlers =\n\t\teventName in this._handlers && this._handlers[eventName].slice();\n\tif (!handlers) return;\n\n\tfor (var i = 0; i < handlers.length; i += 1) {\n\t\tvar handler = handlers[i];\n\n\t\tif (!handler.__calling) {\n\t\t\thandler.__calling = true;\n\t\t\thandler.call(this, data);\n\t\t\thandler.__calling = false;\n\t\t}\n\t}\n}",
-	        "get": "function get() {\n\treturn this._state;\n}",
-	        "init": "function init(component, options) {\n\tcomponent._handlers = blankObject();\n\tcomponent._bind = options._bind;\n\n\tcomponent.options = options;\n\tcomponent.root = options.root || component;\n\tcomponent.store = component.root.store || options.store;\n}",
-	        "on": "function on(eventName, handler) {\n\tvar handlers = this._handlers[eventName] || (this._handlers[eventName] = []);\n\thandlers.push(handler);\n\n\treturn {\n\t\tcancel: function() {\n\t\t\tvar index = handlers.indexOf(handler);\n\t\t\tif (~index) handlers.splice(index, 1);\n\t\t}\n\t};\n}",
-	        "run": "function run(fn) {\n\tfn();\n}",
-	        "set": "function set(newState) {\n\tthis._set(assign({}, newState));\n\tif (this.root._lock) return;\n\tthis.root._lock = true;\n\tcallAll(this.root._beforecreate);\n\tcallAll(this.root._oncreate);\n\tcallAll(this.root._aftercreate);\n\tthis.root._lock = false;\n}",
-	        "_set": "function _set(newState) {\n\tvar oldState = this._state,\n\t\tchanged = {},\n\t\tdirty = false;\n\n\tfor (var key in newState) {\n\t\tif (this._differs(newState[key], oldState[key])) changed[key] = dirty = true;\n\t}\n\tif (!dirty) return;\n\n\tthis._state = assign(assign({}, oldState), newState);\n\tthis._recompute(changed, this._state);\n\tif (this._bind) this._bind(changed, this._state);\n\n\tif (this._fragment) {\n\t\tthis.fire(\"state\", { changed: changed, current: this._state, previous: oldState });\n\t\tthis._fragment.p(changed, this._state);\n\t\tthis.fire(\"update\", { changed: changed, current: this._state, previous: oldState });\n\t}\n}",
-	        "setDev": "function setDev(newState) {\n\tif (typeof newState !== 'object') {\n\t\tthrow new Error(\n\t\t\tthis._debugName + '.set was called without an object of data key-values to update.'\n\t\t);\n\t}\n\n\tthis._checkReadOnly(newState);\n\tset.call(this, newState);\n}",
-	        "callAll": "function callAll(fns) {\n\twhile (fns && fns.length) fns.shift()();\n}",
-	        "_mount": "function _mount(target, anchor) {\n\tthis._fragment[this._fragment.i ? 'i' : 'm'](target, anchor || null);\n}",
-	        "_unmount": "function _unmount() {\n\tif (this._fragment) this._fragment.u();\n}",
-	        "isPromise": "function isPromise(value) {\n\treturn value && typeof value.then === 'function';\n}",
-	        "PENDING": "{}",
-	        "SUCCESS": "{}",
-	        "FAILURE": "{}",
-	        "removeFromStore": "function removeFromStore() {\n\tthis.store._remove(this);\n}",
-	        "proto": "{\n\tdestroy,\n\tget,\n\tfire,\n\ton,\n\tset,\n\t_recompute: noop,\n\t_set,\n\t_mount,\n\t_unmount,\n\t_differs\n}",
-	        "protoDev": "{\n\tdestroy: destroyDev,\n\tget,\n\tfire,\n\ton,\n\tset: setDev,\n\t_recompute: noop,\n\t_set,\n\t_mount,\n\t_unmount,\n\t_differs\n}",
-	        "destroyBlock": "function destroyBlock(block, lookup) {\n\tblock.u();\n\tblock.d();\n\tlookup[block.key] = null;\n}",
-	        "outroAndDestroyBlock": "function outroAndDestroyBlock(block, lookup) {\n\tblock.o(function() {\n\t\tdestroyBlock(block, lookup);\n\t});\n}",
-	        "updateKeyedEach": "function updateKeyedEach(old_blocks, component, changed, key_prop, dynamic, list, lookup, node, has_outro, create_each_block, intro_method, next, get_context) {\n\tvar o = old_blocks.length;\n\tvar n = list.length;\n\n\tvar i = o;\n\tvar old_indexes = {};\n\twhile (i--) old_indexes[old_blocks[i].key] = i;\n\n\tvar new_blocks = [];\n\tvar new_lookup = {};\n\tvar deltas = {};\n\n\tvar i = n;\n\twhile (i--) {\n\t\tvar key = list[i][key_prop];\n\t\tvar block = lookup[key];\n\n\t\tif (!block) {\n\t\t\tblock = create_each_block(component, key, get_context(i));\n\t\t\tblock.c();\n\t\t} else if (dynamic) {\n\t\t\tblock.p(changed, get_context(i));\n\t\t}\n\n\t\tnew_blocks[i] = new_lookup[key] = block;\n\n\t\tif (key in old_indexes) deltas[key] = Math.abs(i - old_indexes[key]);\n\t}\n\n\tvar will_move = {};\n\tvar did_move = {};\n\n\tvar destroy = has_outro ? outroAndDestroyBlock : destroyBlock;\n\n\tfunction insert(block) {\n\t\tblock[intro_method](node, next);\n\t\tlookup[block.key] = block;\n\t\tnext = block.first;\n\t\tn--;\n\t}\n\n\twhile (o && n) {\n\t\tvar new_block = new_blocks[n - 1];\n\t\tvar old_block = old_blocks[o - 1];\n\t\tvar new_key = new_block.key;\n\t\tvar old_key = old_block.key;\n\n\t\tif (new_block === old_block) {\n\t\t\t// do nothing\n\t\t\tnext = new_block.first;\n\t\t\to--;\n\t\t\tn--;\n\t\t}\n\n\t\telse if (!new_lookup[old_key]) {\n\t\t\t// remove old block\n\t\t\tdestroy(old_block, lookup);\n\t\t\to--;\n\t\t}\n\n\t\telse if (!lookup[new_key] || will_move[new_key]) {\n\t\t\tinsert(new_block);\n\t\t}\n\n\t\telse if (did_move[old_key]) {\n\t\t\to--;\n\n\t\t} else if (deltas[new_key] > deltas[old_key]) {\n\t\t\tdid_move[new_key] = true;\n\t\t\tinsert(new_block);\n\n\t\t} else {\n\t\t\twill_move[old_key] = true;\n\t\t\to--;\n\t\t}\n\t}\n\n\twhile (o--) {\n\t\tvar old_block = old_blocks[o];\n\t\tif (!new_lookup[old_block.key]) destroy(old_block, lookup);\n\t}\n\n\twhile (n) insert(new_blocks[n - 1]);\n\n\treturn new_blocks;\n}",
-	        "getSpreadUpdate": "function getSpreadUpdate(levels, updates) {\n\tvar update = {};\n\n\tvar to_null_out = {};\n\tvar accounted_for = {};\n\n\tvar i = levels.length;\n\twhile (i--) {\n\t\tvar o = levels[i];\n\t\tvar n = updates[i];\n\n\t\tif (n) {\n\t\t\tfor (var key in o) {\n\t\t\t\tif (!(key in n)) to_null_out[key] = 1;\n\t\t\t}\n\n\t\t\tfor (var key in n) {\n\t\t\t\tif (!accounted_for[key]) {\n\t\t\t\t\tupdate[key] = n[key];\n\t\t\t\t\taccounted_for[key] = 1;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tlevels[i] = n;\n\t\t} else {\n\t\t\tfor (var key in o) {\n\t\t\t\taccounted_for[key] = 1;\n\t\t\t}\n\t\t}\n\t}\n\n\tfor (var key in to_null_out) {\n\t\tif (!(key in update)) update[key] = undefined;\n\t}\n\n\treturn update;\n}",
-	        "linear": "function linear(t) {\n\treturn t;\n}",
-	        "generateRule": "function generateRule(\n\ta,\n\tb,\n\tdelta,\n\tduration,\n\tease,\n\tfn\n) {\n\tvar keyframes = '{\\n';\n\n\tfor (var p = 0; p <= 1; p += 16.666 / duration) {\n\t\tvar t = a + delta * ease(p);\n\t\tkeyframes += p * 100 + '%{' + fn(t) + '}\\n';\n\t}\n\n\treturn keyframes + '100% {' + fn(b) + '}\\n}';\n}",
-	        "hash": "function hash(str) {\n\tvar hash = 5381;\n\tvar i = str.length;\n\n\twhile (i--) hash = ((hash << 5) - hash) ^ str.charCodeAt(i);\n\treturn hash >>> 0;\n}",
-	        "wrapTransition": "function wrapTransition(component, node, fn, params, intro, outgroup) {\n\tvar obj = fn(node, params);\n\tvar duration = obj.duration || 300;\n\tvar ease = obj.easing || linear;\n\tvar cssText;\n\n\t// TODO share <style> tag between all transitions?\n\tif (obj.css && !transitionManager.stylesheet) {\n\t\tvar style = createElement('style');\n\t\tdocument.head.appendChild(style);\n\t\ttransitionManager.stylesheet = style.sheet;\n\t}\n\n\tif (intro) {\n\t\tif (obj.css && obj.delay) {\n\t\t\tcssText = node.style.cssText;\n\t\t\tnode.style.cssText += obj.css(0);\n\t\t}\n\n\t\tif (obj.tick) obj.tick(0);\n\t}\n\n\treturn {\n\t\tt: intro ? 0 : 1,\n\t\trunning: false,\n\t\tprogram: null,\n\t\tpending: null,\n\t\trun: function(intro, callback) {\n\t\t\tvar program = {\n\t\t\t\tstart: window.performance.now() + (obj.delay || 0),\n\t\t\t\tintro: intro,\n\t\t\t\tcallback: callback\n\t\t\t};\n\n\t\t\tif (obj.delay) {\n\t\t\t\tthis.pending = program;\n\t\t\t} else {\n\t\t\t\tthis.start(program);\n\t\t\t}\n\n\t\t\tif (!this.running) {\n\t\t\t\tthis.running = true;\n\t\t\t\ttransitionManager.add(this);\n\t\t\t}\n\t\t},\n\t\tstart: function(program) {\n\t\t\tcomponent.fire(program.intro ? 'intro.start' : 'outro.start', { node: node });\n\n\t\t\tprogram.a = this.t;\n\t\t\tprogram.b = program.intro ? 1 : 0;\n\t\t\tprogram.delta = program.b - program.a;\n\t\t\tprogram.duration = duration * Math.abs(program.b - program.a);\n\t\t\tprogram.end = program.start + program.duration;\n\n\t\t\tif (obj.css) {\n\t\t\t\tif (obj.delay) node.style.cssText = cssText;\n\n\t\t\t\tprogram.rule = generateRule(\n\t\t\t\t\tprogram.a,\n\t\t\t\t\tprogram.b,\n\t\t\t\t\tprogram.delta,\n\t\t\t\t\tprogram.duration,\n\t\t\t\t\tease,\n\t\t\t\t\tobj.css\n\t\t\t\t);\n\n\t\t\t\ttransitionManager.addRule(program.rule, program.name = '__svelte_' + hash(program.rule));\n\n\t\t\t\tnode.style.animation = (node.style.animation || '')\n\t\t\t\t\t.split(', ')\n\t\t\t\t\t.filter(function(anim) {\n\t\t\t\t\t\t// when introing, discard old animations if there are any\n\t\t\t\t\t\treturn anim && (program.delta < 0 || !/__svelte/.test(anim));\n\t\t\t\t\t})\n\t\t\t\t\t.concat(program.name + ' ' + program.duration + 'ms linear 1 forwards')\n\t\t\t\t\t.join(', ');\n\t\t\t}\n\n\t\t\tthis.program = program;\n\t\t\tthis.pending = null;\n\t\t},\n\t\tupdate: function(now) {\n\t\t\tvar program = this.program;\n\t\t\tif (!program) return;\n\n\t\t\tvar p = now - program.start;\n\t\t\tthis.t = program.a + program.delta * ease(p / program.duration);\n\t\t\tif (obj.tick) obj.tick(this.t);\n\t\t},\n\t\tdone: function() {\n\t\t\tvar program = this.program;\n\t\t\tthis.t = program.b;\n\t\t\tif (obj.tick) obj.tick(this.t);\n\t\t\tif (obj.css) transitionManager.deleteRule(node, program.name);\n\t\t\tprogram.callback();\n\t\t\tprogram = null;\n\t\t\tthis.running = !!this.pending;\n\t\t},\n\t\tabort: function() {\n\t\t\tif (obj.tick) obj.tick(1);\n\t\t\tif (obj.css) transitionManager.deleteRule(node, this.program.name);\n\t\t\tthis.program = this.pending = null;\n\t\t\tthis.running = false;\n\t\t}\n\t};\n}",
-	        "transitionManager": "{\n\trunning: false,\n\ttransitions: [],\n\tbound: null,\n\tstylesheet: null,\n\tactiveRules: {},\n\n\tadd: function(transition) {\n\t\tthis.transitions.push(transition);\n\n\t\tif (!this.running) {\n\t\t\tthis.running = true;\n\t\t\trequestAnimationFrame(this.bound || (this.bound = this.next.bind(this)));\n\t\t}\n\t},\n\n\taddRule: function(rule, name) {\n\t\tif (!this.activeRules[name]) {\n\t\t\tthis.activeRules[name] = true;\n\t\t\tthis.stylesheet.insertRule('@keyframes ' + name + ' ' + rule, this.stylesheet.cssRules.length);\n\t\t}\n\t},\n\n\tnext: function() {\n\t\tthis.running = false;\n\n\t\tvar now = window.performance.now();\n\t\tvar i = this.transitions.length;\n\n\t\twhile (i--) {\n\t\t\tvar transition = this.transitions[i];\n\n\t\t\tif (transition.program && now >= transition.program.end) {\n\t\t\t\ttransition.done();\n\t\t\t}\n\n\t\t\tif (transition.pending && now >= transition.pending.start) {\n\t\t\t\ttransition.start(transition.pending);\n\t\t\t}\n\n\t\t\tif (transition.running) {\n\t\t\t\ttransition.update(now);\n\t\t\t\tthis.running = true;\n\t\t\t} else if (!transition.pending) {\n\t\t\t\tthis.transitions.splice(i, 1);\n\t\t\t}\n\t\t}\n\n\t\tif (this.running) {\n\t\t\trequestAnimationFrame(this.bound);\n\t\t} else if (this.stylesheet) {\n\t\t\tvar i = this.stylesheet.cssRules.length;\n\t\t\twhile (i--) this.stylesheet.deleteRule(i);\n\t\t\tthis.activeRules = {};\n\t\t}\n\t},\n\n\tdeleteRule: function(node, name) {\n\t\tnode.style.animation = node.style.animation\n\t\t\t.split(', ')\n\t\t\t.filter(function(anim) {\n\t\t\t\treturn anim.indexOf(name) === -1;\n\t\t\t})\n\t\t\t.join(', ');\n\t}\n}",
-	        "noop": "function noop() {}",
-	        "assign": "function assign(tar, src) {\n\tfor (var k in src) tar[k] = src[k];\n\treturn tar;\n}",
-	        "assignTrue": "function assignTrue(tar, src) {\n\tfor (var k in src) tar[k] = 1;\n\treturn tar;\n}"
-	    };
-
 	    const keys = {
 	        ObjectExpression: 'properties',
 	        Program: 'body',
@@ -18077,7 +18051,7 @@
 	        throw new Error(`options.format is invalid (must be ${list$2(Object.keys(wrappers))})`);
 	    }
 	    function es(code, name, options, banner, sharedPath, helpers, imports, shorthandImports, source) {
-	        const importHelpers = helpers && (`import { ${helpers.map(h => h.name === h.alias ? h.name : `${h.name} as ${h.alias}`).join(', ')} } from ${JSON.stringify(sharedPath)};`);
+	        const importHelpers = helpers.length > 0 && (`import { ${helpers.map(h => h.name === h.alias ? h.name : `${h.name} as ${h.alias}`).join(', ')} } from ${JSON.stringify(sharedPath)};`);
 	        const importBlock = imports.length > 0 && (imports
 	            .map((declaration) => source.slice(declaration.start, declaration.end))
 	            .join('\n'));
@@ -18105,11 +18079,8 @@
 		});`;
 	    }
 	    function cjs(code, name, options, banner, sharedPath, helpers, dependencies) {
-	        const SHARED = '__shared';
-	        const helperBlock = helpers && (`var ${SHARED} = require(${JSON.stringify(sharedPath)});\n` +
-	            helpers.map(helper => {
-	                return `var ${helper.alias} = ${SHARED}.${helper.name};`;
-	            }).join('\n'));
+	        const helperDeclarations = helpers.map(h => `${h.alias === h.name ? h.name : `${h.name}: ${h.alias}`}`).join(', ');
+	        const helperBlock = helpers.length > 0 && (`var { ${helperDeclarations} } = require(${JSON.stringify(sharedPath)});\n`);
 	        const requireBlock = dependencies.length > 0 && (dependencies
 	            .map(d => `var ${d.name} = require("${d.source}");`)
 	            .join('\n\n'));
@@ -18227,33 +18198,311 @@
 	        return () => undefined;
 	    }
 
-	    function clone(node) {
-	        const cloned = {};
-	        for (const key in node) {
-	            const value = node[key];
-	            if (Array.isArray(value)) {
-	                cloned[key] = value.map(clone);
+	    function createScopes(expression) {
+	        const map = new WeakMap();
+	        const globals = new Set();
+	        let scope = new Scope(null, false);
+	        walk(expression, {
+	            enter(node, parent) {
+	                if (/Function/.test(node.type)) {
+	                    if (node.type === 'FunctionDeclaration') {
+	                        scope.declarations.add(node.id.name);
+	                    }
+	                    else {
+	                        scope = new Scope(scope, false);
+	                        map.set(node, scope);
+	                        if (node.id)
+	                            scope.declarations.add(node.id.name);
+	                    }
+	                    node.params.forEach((param) => {
+	                        extractNames(param).forEach(name => {
+	                            scope.declarations.add(name);
+	                        });
+	                    });
+	                }
+	                else if (/For(?:In|Of)Statement/.test(node.type)) {
+	                    scope = new Scope(scope, true);
+	                    map.set(node, scope);
+	                }
+	                else if (node.type === 'BlockStatement') {
+	                    scope = new Scope(scope, true);
+	                    map.set(node, scope);
+	                }
+	                else if (/(Function|Class|Variable)Declaration/.test(node.type)) {
+	                    scope.addDeclaration(node);
+	                }
+	                else if (isReference(node, parent)) {
+	                    if (!scope.has(node.name)) {
+	                        globals.add(node.name);
+	                    }
+	                }
+	            },
+	            leave(node) {
+	                if (map.has(node)) {
+	                    scope = scope.parent;
+	                }
+	            },
+	        });
+	        return { map, scope, globals };
+	    }
+	    // TODO remove this in favour of weakmap version
+	    function annotateWithScopes(expression) {
+	        const globals = new Set();
+	        let scope = new Scope(null, false);
+	        walk(expression, {
+	            enter(node, parent) {
+	                if (/Function/.test(node.type)) {
+	                    if (node.type === 'FunctionDeclaration') {
+	                        scope.declarations.add(node.id.name);
+	                    }
+	                    else {
+	                        node._scope = scope = new Scope(scope, false);
+	                        if (node.id)
+	                            scope.declarations.add(node.id.name);
+	                    }
+	                    node.params.forEach((param) => {
+	                        extractNames(param).forEach(name => {
+	                            scope.declarations.add(name);
+	                        });
+	                    });
+	                }
+	                else if (/For(?:In|Of)Statement/.test(node.type)) {
+	                    node._scope = scope = new Scope(scope, true);
+	                }
+	                else if (node.type === 'BlockStatement') {
+	                    node._scope = scope = new Scope(scope, true);
+	                }
+	                else if (/(Function|Class|Variable)Declaration/.test(node.type)) {
+	                    scope.addDeclaration(node);
+	                }
+	                else if (isReference(node, parent)) {
+	                    if (!scope.has(node.name)) {
+	                        globals.add(node.name);
+	                    }
+	                }
+	            },
+	            leave(node) {
+	                if (node._scope) {
+	                    scope = scope.parent;
+	                }
+	            },
+	        });
+	        return { scope, globals };
+	    }
+	    class Scope {
+	        constructor(parent, block) {
+	            this.parent = parent;
+	            this.block = block;
+	            this.declarations = new Set();
+	        }
+	        addDeclaration(node) {
+	            if (node.kind === 'var' && !this.block && this.parent) {
+	                this.parent.addDeclaration(node);
 	            }
-	            else if (value && typeof value === 'object') {
-	                cloned[key] = clone(value);
+	            else if (node.type === 'VariableDeclaration') {
+	                node.declarations.forEach((declarator) => {
+	                    extractNames(declarator.id).forEach(name => {
+	                        this.declarations.add(name);
+	                    });
+	                });
 	            }
 	            else {
-	                cloned[key] = value;
+	                this.declarations.add(node.id.name);
 	            }
 	        }
-	        return cloned;
+	        has(name) {
+	            return (this.declarations.has(name) || (this.parent && this.parent.has(name)));
+	        }
 	    }
+	    function extractNames(param) {
+	        const names = [];
+	        extractors[param.type](names, param);
+	        return names;
+	    }
+	    const extractors = {
+	        Identifier(names, param) {
+	            names.push(param.name);
+	        },
+	        ObjectPattern(names, param) {
+	            param.properties.forEach((prop) => {
+	                extractors[prop.value.type](names, prop.value);
+	            });
+	        },
+	        ArrayPattern(names, param) {
+	            param.elements.forEach((element) => {
+	                if (element)
+	                    extractors[element.type](names, element);
+	            });
+	        },
+	        RestElement(names, param) {
+	            extractors[param.argument.type](names, param.argument);
+	        },
+	        AssignmentPattern(names, param) {
+	            extractors[param.left.type](names, param.left);
+	        },
+	    };
 
 	    const test = typeof process !== 'undefined' && process.env.TEST;
 
-	    const svgAttributes = 'accent-height accumulate additive alignment-baseline allowReorder alphabetic amplitude arabic-form ascent attributeName attributeType autoReverse azimuth baseFrequency baseline-shift baseProfile bbox begin bias by calcMode cap-height class clip clipPathUnits clip-path clip-rule color color-interpolation color-interpolation-filters color-profile color-rendering contentScriptType contentStyleType cursor cx cy d decelerate descent diffuseConstant direction display divisor dominant-baseline dur dx dy edgeMode elevation enable-background end exponent externalResourcesRequired fill fill-opacity fill-rule filter filterRes filterUnits flood-color flood-opacity font-family font-size font-size-adjust font-stretch font-style font-variant font-weight format from fr fx fy g1 g2 glyph-name glyph-orientation-horizontal glyph-orientation-vertical glyphRef gradientTransform gradientUnits hanging height href horiz-adv-x horiz-origin-x id ideographic image-rendering in in2 intercept k k1 k2 k3 k4 kernelMatrix kernelUnitLength kerning keyPoints keySplines keyTimes lang lengthAdjust letter-spacing lighting-color limitingConeAngle local marker-end marker-mid marker-start markerHeight markerUnits markerWidth mask maskContentUnits maskUnits mathematical max media method min mode name numOctaves offset onabort onactivate onbegin onclick onend onerror onfocusin onfocusout onload onmousedown onmousemove onmouseout onmouseover onmouseup onrepeat onresize onscroll onunload opacity operator order orient orientation origin overflow overline-position overline-thickness panose-1 paint-order pathLength patternContentUnits patternTransform patternUnits pointer-events points pointsAtX pointsAtY pointsAtZ preserveAlpha preserveAspectRatio primitiveUnits r radius refX refY rendering-intent repeatCount repeatDur requiredExtensions requiredFeatures restart result rotate rx ry scale seed shape-rendering slope spacing specularConstant specularExponent speed spreadMethod startOffset stdDeviation stemh stemv stitchTiles stop-color stop-opacity strikethrough-position strikethrough-thickness string stroke stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit stroke-opacity stroke-width style surfaceScale systemLanguage tabindex tableValues target targetX targetY text-anchor text-decoration text-rendering textLength to transform type u1 u2 underline-position underline-thickness unicode unicode-bidi unicode-range units-per-em v-alphabetic v-hanging v-ideographic v-mathematical values version vert-adv-y vert-origin-x vert-origin-y viewBox viewTarget visibility width widths word-spacing writing-mode x x-height x1 x2 xChannelSelector xlink:actuate xlink:arcrole xlink:href xlink:role xlink:show xlink:title xlink:type xml:base xml:lang xml:space y y1 y2 yChannelSelector z zoomAndPan'.split(' ');
-	    const svgAttributeLookup = new Map();
-	    svgAttributes.forEach(name => {
-	        svgAttributeLookup.set(name.toLowerCase(), name);
-	    });
-	    function fixAttributeCasing(name) {
-	        name = name.toLowerCase();
-	        return svgAttributeLookup.get(name) || name;
+	    class Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            this.start = info.start;
+	            this.end = info.end;
+	            this.type = info.type;
+	            // this makes properties non-enumerable, which makes logging
+	            // bearable. might have a performance cost. TODO remove in prod?
+	            Object.defineProperties(this, {
+	                compiler: {
+	                    value: compiler
+	                },
+	                parent: {
+	                    value: parent
+	                }
+	            });
+	        }
+	        cannotUseInnerHTML() {
+	            if (this.canUseInnerHTML !== false) {
+	                this.canUseInnerHTML = false;
+	                if (this.parent)
+	                    this.parent.cannotUseInnerHTML();
+	            }
+	        }
+	        init(block, stripWhitespace, nextSibling) {
+	            // implemented by subclasses
+	        }
+	        initChildren(block, stripWhitespace, nextSibling) {
+	            // glue text nodes together
+	            const cleaned = [];
+	            let lastChild;
+	            let windowComponent;
+	            this.children.forEach((child) => {
+	                if (child.type === 'Comment')
+	                    return;
+	                // special case — this is an easy way to remove whitespace surrounding
+	                // <svelte:window/>. lil hacky but it works
+	                if (child.type === 'Window') {
+	                    windowComponent = child;
+	                    return;
+	                }
+	                if (child.type === 'Text' && lastChild && lastChild.type === 'Text') {
+	                    lastChild.data += child.data;
+	                    lastChild.end = child.end;
+	                }
+	                else {
+	                    if (child.type === 'Text' && stripWhitespace && cleaned.length === 0) {
+	                        child.data = trimStart(child.data);
+	                        if (child.data)
+	                            cleaned.push(child);
+	                    }
+	                    else {
+	                        cleaned.push(child);
+	                    }
+	                }
+	                lastChild = child;
+	            });
+	            lastChild = null;
+	            cleaned.forEach((child, i) => {
+	                child.canUseInnerHTML = !this.compiler.options.hydratable;
+	                child.init(block, stripWhitespace, cleaned[i + 1] || nextSibling);
+	                if (child.shouldSkip)
+	                    return;
+	                if (lastChild)
+	                    lastChild.next = child;
+	                child.prev = lastChild;
+	                lastChild = child;
+	            });
+	            // We want to remove trailing whitespace inside an element/component/block,
+	            // *unless* there is no whitespace between this node and its next sibling
+	            if (stripWhitespace && lastChild && lastChild.type === 'Text') {
+	                const shouldTrim = (nextSibling ? (nextSibling.type === 'Text' && /^\s/.test(nextSibling.data)) : !this.hasAncestor('EachBlock'));
+	                if (shouldTrim) {
+	                    lastChild.data = trimEnd(lastChild.data);
+	                    if (!lastChild.data) {
+	                        cleaned.pop();
+	                        lastChild = cleaned[cleaned.length - 1];
+	                        lastChild.next = null;
+	                    }
+	                }
+	            }
+	            this.children = cleaned;
+	            if (windowComponent)
+	                cleaned.unshift(windowComponent);
+	        }
+	        build(block, parentNode, parentNodes) {
+	            // implemented by subclasses
+	        }
+	        isDomNode() {
+	            return this.type === 'Element' || this.type === 'Text' || this.type === 'MustacheTag';
+	        }
+	        hasAncestor(type) {
+	            return this.parent ?
+	                this.parent.type === type || this.parent.hasAncestor(type) :
+	                false;
+	        }
+	        findNearest(selector) {
+	            if (selector.test(this.type))
+	                return this;
+	            if (this.parent)
+	                return this.parent.findNearest(selector);
+	        }
+	        getOrCreateAnchor(block, parentNode, parentNodes) {
+	            // TODO use this in EachBlock and IfBlock — tricky because
+	            // children need to be created first
+	            const needsAnchor = this.next ? !this.next.isDomNode() : !parentNode || !this.parent.isDomNode();
+	            const anchor = needsAnchor
+	                ? block.getUniqueName(`${this.var}_anchor`)
+	                : (this.next && this.next.var) || 'null';
+	            if (needsAnchor) {
+	                block.addElement(anchor, `@createComment()`, parentNodes && `@createComment()`, parentNode);
+	            }
+	            return anchor;
+	        }
+	        getUpdateMountNode(anchor) {
+	            return this.parent.isDomNode() ? this.parent.var : `${anchor}.parentNode`;
+	        }
+	        remount(name) {
+	            return `${this.var}.m(${name}._slotted.default, null);`;
+	        }
+	    }
+
+	    class PendingBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, parent, scope, info.children);
+	        }
+	    }
+
+	    class ThenBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, parent, scope, info.children);
+	        }
+	    }
+
+	    class CatchBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, parent, scope, info.children);
+	        }
+	    }
+
+	    function createDebuggingComment(node, compiler) {
+	        const { locate, source } = compiler;
+	        let c = node.start;
+	        if (node.type === 'ElseBlock') {
+	            while (source[c - 1] !== '{')
+	                c -= 1;
+	            while (source[c - 1] === '{')
+	                c -= 1;
+	        }
+	        let d = node.expression ? node.expression.node.end : c;
+	        while (source[d] !== '}')
+	            d += 1;
+	        while (source[d] === '}')
+	            d += 1;
+	        const start = locate(c);
+	        const loc = `(${start.line + 1}:${start.column})`;
+	        return `${loc} ${source.slice(c, d)}`.replace(/\s/g, ' ');
 	    }
 
 	    const binaryOperators = {
@@ -18293,31 +18542,403 @@
 	        CallExpression: () => 19,
 	        UpdateExpression: () => 17,
 	        UnaryExpression: () => 16,
-	        BinaryExpression: (expression) => binaryOperators[expression.operator],
-	        LogicalExpression: (expression) => logicalOperators[expression.operator],
+	        BinaryExpression: (node) => binaryOperators[node.operator],
+	        LogicalExpression: (node) => logicalOperators[node.operator],
 	        ConditionalExpression: () => 4,
 	        AssignmentExpression: () => 3,
 	        YieldExpression: () => 2,
 	        SpreadElement: () => 1,
 	        SequenceExpression: () => 0
 	    };
-	    function getExpressionPrecedence(expression) {
-	        return expression.type in precedence ? precedence[expression.type](expression) : 0;
+	    class Expression {
+	        constructor(compiler, parent, scope, info) {
+	            // TODO revert to direct property access in prod?
+	            Object.defineProperties(this, {
+	                compiler: {
+	                    value: compiler
+	                }
+	            });
+	            this.node = info;
+	            this.thisReferences = [];
+	            this.snippet = `[✂${info.start}-${info.end}✂]`;
+	            this.usesContext = false;
+	            const dependencies = new Set();
+	            const { code, helpers } = compiler;
+	            let { map, scope: currentScope } = createScopes(info);
+	            const isEventHandler = parent.type === 'EventHandler';
+	            const expression = this;
+	            const isSynthetic = parent.isSynthetic;
+	            walk(info, {
+	                enter(node, parent, key) {
+	                    // don't manipulate shorthand props twice
+	                    if (key === 'value' && parent.shorthand)
+	                        return;
+	                    code.addSourcemapLocation(node.start);
+	                    code.addSourcemapLocation(node.end);
+	                    if (map.has(node)) {
+	                        currentScope = map.get(node);
+	                        return;
+	                    }
+	                    if (node.type === 'ThisExpression') {
+	                        expression.thisReferences.push(node);
+	                    }
+	                    if (isReference(node, parent)) {
+	                        const { name, nodes } = flattenReference(node);
+	                        if (currentScope.has(name) || (name === 'event' && isEventHandler))
+	                            return;
+	                        if (compiler.helpers.has(name)) {
+	                            let object = node;
+	                            while (object.type === 'MemberExpression')
+	                                object = object.object;
+	                            const alias = compiler.templateVars.get(`helpers-${name}`);
+	                            if (alias !== name)
+	                                code.overwrite(object.start, object.end, alias);
+	                            return;
+	                        }
+	                        expression.usesContext = true;
+	                        if (!isSynthetic) {
+	                            // <option> value attribute could be synthetic — avoid double editing
+	                            code.prependRight(node.start, key === 'key' && parent.shorthand
+	                                ? `${name}: ctx.`
+	                                : 'ctx.');
+	                        }
+	                        if (scope.names.has(name)) {
+	                            scope.dependenciesForName.get(name).forEach(dependency => {
+	                                dependencies.add(dependency);
+	                            });
+	                        }
+	                        else {
+	                            dependencies.add(name);
+	                            compiler.expectedProperties.add(name);
+	                        }
+	                        if (node.type === 'MemberExpression') {
+	                            nodes.forEach(node => {
+	                                code.addSourcemapLocation(node.start);
+	                                code.addSourcemapLocation(node.end);
+	                            });
+	                        }
+	                        this.skip();
+	                    }
+	                },
+	                leave(node, parent) {
+	                    if (map.has(node))
+	                        currentScope = currentScope.parent;
+	                }
+	            });
+	            this.dependencies = dependencies;
+	        }
+	        getPrecedence() {
+	            return this.node.type in precedence ? precedence[this.node.type](this.node) : 0;
+	        }
+	        overwriteThis(name) {
+	            this.thisReferences.forEach(ref => {
+	                this.compiler.code.overwrite(ref.start, ref.end, name, {
+	                    storeName: true
+	                });
+	            });
+	        }
 	    }
 
-	    class Attribute {
-	        constructor({ generator, name, value, parent }) {
-	            this.type = 'Attribute';
-	            this.generator = generator;
-	            this.parent = parent;
-	            this.name = name;
-	            this.value = value;
+	    class AwaitBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.expression = new Expression(compiler, this, scope, info.expression);
+	            const deps = this.expression.dependencies;
+	            this.value = info.value;
+	            this.error = info.error;
+	            this.pending = new PendingBlock(compiler, this, scope, info.pending);
+	            this.then = new ThenBlock(compiler, this, scope.add(this.value, deps), info.then);
+	            this.catch = new CatchBlock(compiler, this, scope.add(this.error, deps), info.catch);
+	        }
+	        init(block, stripWhitespace, nextSibling) {
+	            this.cannotUseInnerHTML();
+	            this.var = block.getUniqueName('await_block');
+	            block.addDependencies(this.expression.dependencies);
+	            let isDynamic = false;
+	            ['pending', 'then', 'catch'].forEach(status => {
+	                const child = this[status];
+	                child.block = block.child({
+	                    comment: createDebuggingComment(child, this.compiler),
+	                    name: this.compiler.getUniqueName(`create_${status}_block`)
+	                });
+	                child.initChildren(child.block, stripWhitespace, nextSibling);
+	                this.compiler.target.blocks.push(child.block);
+	                if (child.block.dependencies.size > 0) {
+	                    isDynamic = true;
+	                    block.addDependencies(child.block.dependencies);
+	                }
+	            });
+	            this.pending.block.hasUpdateMethod = isDynamic;
+	            this.then.block.hasUpdateMethod = isDynamic;
+	            this.catch.block.hasUpdateMethod = isDynamic;
+	        }
+	        build(block, parentNode, parentNodes) {
+	            const name = this.var;
+	            const anchor = this.getOrCreateAnchor(block, parentNode, parentNodes);
+	            const updateMountNode = this.getUpdateMountNode(anchor);
+	            const { snippet } = this.expression;
+	            const promise = block.getUniqueName(`promise`);
+	            const resolved = block.getUniqueName(`resolved`);
+	            const await_block = block.getUniqueName(`await_block`);
+	            const await_block_type = block.getUniqueName(`await_block_type`);
+	            const token = block.getUniqueName(`token`);
+	            const await_token = block.getUniqueName(`await_token`);
+	            const handle_promise = block.getUniqueName(`handle_promise`);
+	            const replace_await_block = block.getUniqueName(`replace_await_block`);
+	            const old_block = block.getUniqueName(`old_block`);
+	            const value = block.getUniqueName(`value`);
+	            const error = block.getUniqueName(`error`);
+	            const create_pending_block = this.pending.block.name;
+	            const create_then_block = this.then.block.name;
+	            const create_catch_block = this.catch.block.name;
+	            block.addVariable(await_block);
+	            block.addVariable(await_block_type);
+	            block.addVariable(await_token);
+	            block.addVariable(promise);
+	            block.addVariable(resolved);
+	            block.maintainContext = true;
+	            // the `#component.root.set({})` below is just a cheap way to flush
+	            // any oncreate handlers. We could have a dedicated `flush()` method
+	            // but it's probably not worth it
+	            block.builders.init.addBlock(deindent `
+			function ${replace_await_block}(${token}, type, ctx) {
+				if (${token} !== ${await_token}) return;
+
+				var ${old_block} = ${await_block};
+				${await_block} = type && (${await_block_type} = type)(#component, ctx);
+
+				if (${old_block}) {
+					${old_block}.u();
+					${old_block}.d();
+					${await_block}.c();
+					${await_block}.m(${updateMountNode}, ${anchor});
+
+					#component.root.set({});
+				}
+			}
+
+			function ${handle_promise}(${promise}) {
+				var ${token} = ${await_token} = {};
+
+				if (@isPromise(${promise})) {
+					${promise}.then(function(${value}) {
+						${this.value ? deindent `
+							${resolved} = { ${this.value}: ${value} };
+							${replace_await_block}(${token}, ${create_then_block}, @assign(@assign({}, ctx), ${resolved}));
+						` : deindent `
+							${replace_await_block}(${token}, null, null);
+						`}
+					}, function (${error}) {
+						${this.error ? deindent `
+							${resolved} = { ${this.error}: ${error} };
+							${replace_await_block}(${token}, ${create_catch_block}, @assign(@assign({}, ctx), ${resolved}));
+						` : deindent `
+							${replace_await_block}(${token}, null, null);
+						`}
+					});
+
+					// if we previously had a then/catch block, destroy it
+					if (${await_block_type} !== ${create_pending_block}) {
+						${replace_await_block}(${token}, ${create_pending_block}, ctx);
+						return true;
+					}
+				} else {
+					${resolved} = { ${this.value}: ${promise} };
+					if (${await_block_type} !== ${create_then_block}) {
+						${replace_await_block}(${token}, ${create_then_block}, @assign(@assign({}, ctx), ${resolved}));
+						return true;
+					}
+				}
+			}
+
+			${handle_promise}(${promise} = ${snippet});
+		`);
+	            block.builders.create.addBlock(deindent `
+			${await_block}.c();
+		`);
+	            if (parentNodes) {
+	                block.builders.claim.addBlock(deindent `
+				${await_block}.l(${parentNodes});
+			`);
+	            }
+	            const initialMountNode = parentNode || '#target';
+	            const anchorNode = parentNode ? 'null' : 'anchor';
+	            block.builders.mount.addBlock(deindent `
+			${await_block}.m(${initialMountNode}, ${anchorNode});
+		`);
+	            const conditions = [];
+	            if (this.expression.dependencies.size > 0) {
+	                conditions.push(`(${[...this.expression.dependencies].map(dep => `'${dep}' in changed`).join(' || ')})`);
+	            }
+	            conditions.push(`${promise} !== (${promise} = ${snippet})`, `${handle_promise}(${promise}, ctx)`);
+	            if (this.pending.block.hasUpdateMethod) {
+	                block.builders.update.addBlock(deindent `
+				if (${conditions.join(' && ')}) {
+					// nothing
+				} else {
+					${await_block}.p(changed, @assign(@assign({}, ctx), ${resolved}));
+				}
+			`);
+	            }
+	            else {
+	                block.builders.update.addBlock(deindent `
+				if (${conditions.join(' && ')}) {
+					${await_block}.c();
+					${await_block}.m(${anchor}.parentNode, ${anchor});
+				}
+			`);
+	            }
+	            block.builders.unmount.addBlock(deindent `
+			${await_block}.u();
+		`);
+	            block.builders.destroy.addBlock(deindent `
+			${await_token} = null;
+			${await_block}.d();
+		`);
+	            [this.pending, this.then, this.catch].forEach(status => {
+	                status.children.forEach(child => {
+	                    child.build(status.block, null, 'nodes');
+	                });
+	            });
+	        }
+	        ssr() {
+	            const target = this.compiler.target;
+	            const { snippet } = this.expression;
+	            target.append('${(function(__value) { if(@isPromise(__value)) return `');
+	            this.pending.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            target.append('`; return function(ctx) { return `');
+	            this.then.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            target.append(`\`;}(Object.assign({}, ctx, { ${this.value}: __value }));}(${snippet})) }`);
+	        }
+	    }
+
+	    class Comment$2 extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.data = info.data;
+	        }
+	        ssr() {
+	            // Allow option to preserve comments, otherwise ignore
+	            if (this.compiler.options.preserveComments) {
+	                this.compiler.target.append(`<!--${this.data}-->`);
+	            }
+	        }
+	    }
+
+	    function stringifyProps(props) {
+	        if (!props.length)
+	            return '{}';
+	        const joined = props.join(', ');
+	        if (joined.length > 40) {
+	            // make larger data objects readable
+	            return `{\n\t${props.join(',\n\t')}\n}`;
+	        }
+	        return `{ ${joined} }`;
+	    }
+
+	    function getTailSnippet(node) {
+	        const end = node.end;
+	        while (node.type === 'MemberExpression')
+	            node = node.object;
+	        const start = node.end;
+	        return `[✂${start}-${end}✂]`;
+	    }
+
+	    function getObject(node) {
+	        while (node.type === 'MemberExpression')
+	            node = node.object;
+	        return node;
+	    }
+
+	    function quoteIfNecessary(name) {
+	        if (!isValidIdentifier(name))
+	            return `"${name}"`;
+	        return name;
+	    }
+
+	    const svgAttributes = 'accent-height accumulate additive alignment-baseline allowReorder alphabetic amplitude arabic-form ascent attributeName attributeType autoReverse azimuth baseFrequency baseline-shift baseProfile bbox begin bias by calcMode cap-height class clip clipPathUnits clip-path clip-rule color color-interpolation color-interpolation-filters color-profile color-rendering contentScriptType contentStyleType cursor cx cy d decelerate descent diffuseConstant direction display divisor dominant-baseline dur dx dy edgeMode elevation enable-background end exponent externalResourcesRequired fill fill-opacity fill-rule filter filterRes filterUnits flood-color flood-opacity font-family font-size font-size-adjust font-stretch font-style font-variant font-weight format from fr fx fy g1 g2 glyph-name glyph-orientation-horizontal glyph-orientation-vertical glyphRef gradientTransform gradientUnits hanging height href horiz-adv-x horiz-origin-x id ideographic image-rendering in in2 intercept k k1 k2 k3 k4 kernelMatrix kernelUnitLength kerning keyPoints keySplines keyTimes lang lengthAdjust letter-spacing lighting-color limitingConeAngle local marker-end marker-mid marker-start markerHeight markerUnits markerWidth mask maskContentUnits maskUnits mathematical max media method min mode name numOctaves offset onabort onactivate onbegin onclick onend onerror onfocusin onfocusout onload onmousedown onmousemove onmouseout onmouseover onmouseup onrepeat onresize onscroll onunload opacity operator order orient orientation origin overflow overline-position overline-thickness panose-1 paint-order pathLength patternContentUnits patternTransform patternUnits pointer-events points pointsAtX pointsAtY pointsAtZ preserveAlpha preserveAspectRatio primitiveUnits r radius refX refY rendering-intent repeatCount repeatDur requiredExtensions requiredFeatures restart result rotate rx ry scale seed shape-rendering slope spacing specularConstant specularExponent speed spreadMethod startOffset stdDeviation stemh stemv stitchTiles stop-color stop-opacity strikethrough-position strikethrough-thickness string stroke stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit stroke-opacity stroke-width style surfaceScale systemLanguage tabindex tableValues target targetX targetY text-anchor text-decoration text-rendering textLength to transform type u1 u2 underline-position underline-thickness unicode unicode-bidi unicode-range units-per-em v-alphabetic v-hanging v-ideographic v-mathematical values version vert-adv-y vert-origin-x vert-origin-y viewBox viewTarget visibility width widths word-spacing writing-mode x x-height x1 x2 xChannelSelector xlink:actuate xlink:arcrole xlink:href xlink:role xlink:show xlink:title xlink:type xml:base xml:lang xml:space y y1 y2 yChannelSelector z zoomAndPan'.split(' ');
+	    const svgAttributeLookup = new Map();
+	    svgAttributes.forEach(name => {
+	        svgAttributeLookup.set(name.toLowerCase(), name);
+	    });
+	    function fixAttributeCasing(name) {
+	        name = name.toLowerCase();
+	        return svgAttributeLookup.get(name) || name;
+	    }
+
+	    function addToSet(a, b) {
+	        b.forEach(item => {
+	            a.add(item);
+	        });
+	    }
+
+	    class Attribute extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            if (info.type === 'Spread') {
+	                this.name = null;
+	                this.isSpread = true;
+	                this.isTrue = false;
+	                this.isSynthetic = false;
+	                this.expression = new Expression(compiler, this, scope, info.expression);
+	                this.dependencies = this.expression.dependencies;
+	                this.chunks = null;
+	                this.isDynamic = true; // TODO not necessarily
+	                this.shouldCache = false; // TODO does this mean anything here?
+	            }
+	            else {
+	                this.name = info.name;
+	                this.isTrue = info.value === true;
+	                this.isSynthetic = info.synthetic;
+	                this.dependencies = new Set();
+	                this.chunks = this.isTrue
+	                    ? []
+	                    : info.value.map(node => {
+	                        if (node.type === 'Text')
+	                            return node;
+	                        const expression = new Expression(compiler, this, scope, node.expression);
+	                        addToSet(this.dependencies, expression.dependencies);
+	                        return expression;
+	                    });
+	                this.isDynamic = this.dependencies.size > 0;
+	                this.shouldCache = this.isDynamic
+	                    ? this.chunks.length === 1
+	                        ? this.chunks[0].node.type !== 'Identifier' || scope.names.has(this.chunks[0].node.name)
+	                        : true
+	                    : false;
+	            }
+	        }
+	        getValue() {
+	            if (this.isTrue)
+	                return true;
+	            if (this.chunks.length === 0)
+	                return `""`;
+	            if (this.chunks.length === 1) {
+	                return this.chunks[0].type === 'Text'
+	                    ? stringify(this.chunks[0].data)
+	                    : this.chunks[0].snippet;
+	            }
+	            return (this.chunks[0].type === 'Text' ? '' : `"" + `) +
+	                this.chunks
+	                    .map(chunk => {
+	                    if (chunk.type === 'Text') {
+	                        return stringify(chunk.data);
+	                    }
+	                    else {
+	                        return chunk.getPrecedence() <= 13 ? `(${chunk.snippet})` : chunk.snippet;
+	                    }
+	                })
+	                    .join(' + ');
 	        }
 	        render(block) {
 	            const node = this.parent;
 	            const name = fixAttributeCasing(this.name);
 	            if (name === 'style') {
-	                const styleProps = optimizeStyle(this.value);
+	                const styleProps = optimizeStyle(this.chunks);
 	                if (styleProps) {
 	                    this.renderStyle(block, styleProps);
 	                    return;
@@ -18329,7 +18950,7 @@
 	            const isIndirectlyBoundValue = name === 'value' &&
 	                (node.name === 'option' || // TODO check it's actually bound
 	                    (node.name === 'input' &&
-	                        node.attributes.find((attribute) => attribute.type === 'Binding' && /checked|group/.test(attribute.name))));
+	                        node.bindings.find((binding) => /checked|group/.test(binding.name))));
 	            const propertyName = isIndirectlyBoundValue
 	                ? '__value'
 	                : metadata && metadata.propertyName;
@@ -18339,60 +18960,40 @@
 	            const method = name.slice(0, 6) === 'xlink:'
 	                ? '@setXlinkAttribute'
 	                : '@setAttribute';
-	            const isDynamic = this.isDynamic();
-	            const isLegacyInputType = this.generator.legacy && name === 'type' && this.parent.name === 'input';
-	            const isDataSet = /^data-/.test(name) && !this.generator.legacy && !node.namespace;
+	            const isLegacyInputType = this.compiler.options.legacy && name === 'type' && this.parent.name === 'input';
+	            const isDataSet = /^data-/.test(name) && !this.compiler.options.legacy && !node.namespace;
 	            const camelCaseName = isDataSet ? name.replace('data-', '').replace(/(-\w)/g, function (m) {
 	                return m[1].toUpperCase();
 	            }) : name;
-	            if (isDynamic) {
+	            if (this.isDynamic) {
 	                let value;
-	                const allDependencies = new Set();
-	                let shouldCache;
-	                let hasChangeableIndex;
 	                // TODO some of this code is repeated in Tag.ts — would be good to
 	                // DRY it out if that's possible without introducing crazy indirection
-	                if (this.value.length === 1) {
-	                    // single {{tag}} — may be a non-string
-	                    const { expression } = this.value[0];
-	                    const { indexes } = block.contextualise(expression);
-	                    const { dependencies, snippet } = this.value[0].metadata;
-	                    value = snippet;
-	                    dependencies.forEach(d => {
-	                        allDependencies.add(d);
-	                    });
-	                    hasChangeableIndex = Array.from(indexes).some(index => block.changeableIndexes.get(index));
-	                    shouldCache = (expression.type !== 'Identifier' ||
-	                        block.contexts.has(expression.name) ||
-	                        hasChangeableIndex);
+	                if (this.chunks.length === 1) {
+	                    // single {tag} — may be a non-string
+	                    value = this.chunks[0].snippet;
 	                }
 	                else {
-	                    // '{{foo}} {{bar}}' — treat as string concatenation
+	                    // '{foo} {bar}' — treat as string concatenation
 	                    value =
-	                        (this.value[0].type === 'Text' ? '' : `"" + `) +
-	                            this.value
+	                        (this.chunks[0].type === 'Text' ? '' : `"" + `) +
+	                            this.chunks
 	                                .map((chunk) => {
 	                                if (chunk.type === 'Text') {
 	                                    return stringify(chunk.data);
 	                                }
 	                                else {
-	                                    const { indexes } = block.contextualise(chunk.expression);
-	                                    const { dependencies, snippet } = chunk.metadata;
-	                                    if (Array.from(indexes).some(index => block.changeableIndexes.get(index))) {
-	                                        hasChangeableIndex = true;
-	                                    }
-	                                    dependencies.forEach(d => {
-	                                        allDependencies.add(d);
-	                                    });
-	                                    return getExpressionPrecedence(chunk.expression) <= 13 ? `(${snippet})` : snippet;
+	                                    return chunk.getPrecedence() <= 13
+	                                        ? `(${chunk.snippet})`
+	                                        : chunk.snippet;
 	                                }
 	                            })
 	                                .join(' + ');
-	                    shouldCache = true;
 	                }
 	                const isSelectValueAttribute = name === 'value' && node.name === 'select';
-	                const last = (shouldCache || isSelectValueAttribute) && block.getUniqueName(`${node.var}_${name.replace(/[^a-zA-Z_$]/g, '_')}_value`);
-	                if (shouldCache || isSelectValueAttribute)
+	                const shouldCache = this.shouldCache || isSelectValueAttribute;
+	                const last = shouldCache && block.getUniqueName(`${node.var}_${name.replace(/[^a-zA-Z_$]/g, '_')}_value`);
+	                if (shouldCache)
 	                    block.addVariable(last);
 	                let updater;
 	                const init = shouldCache ? `${last} = ${value}` : value;
@@ -18424,7 +19025,6 @@
 					${last} = ${value};
 					${updater}
 				`);
-	                    block.builders.update.addLine(`${last} = ${value};`);
 	                }
 	                else if (propertyName) {
 	                    block.builders.hydrate.addLine(`${node.var}.${propertyName} = ${init};`);
@@ -18438,8 +19038,8 @@
 	                    block.builders.hydrate.addLine(`${method}(${node.var}, "${name}", ${init});`);
 	                    updater = `${method}(${node.var}, "${name}", ${shouldCache ? last : value});`;
 	                }
-	                if (allDependencies.size || hasChangeableIndex || isSelectValueAttribute) {
-	                    const dependencies = Array.from(allDependencies);
+	                if (this.dependencies.size || isSelectValueAttribute) {
+	                    const dependencies = Array.from(this.dependencies);
 	                    const changedCheck = ((block.hasOutroMethod ? `#outroing || ` : '') +
 	                        dependencies.map(dependency => `changed.${dependency}`).join(' || '));
 	                    const updateCachedValue = `${last} !== (${last} = ${value})`;
@@ -18450,9 +19050,7 @@
 	                }
 	            }
 	            else {
-	                const value = this.value === true
-	                    ? 'true'
-	                    : this.value.length === 0 ? `""` : stringify(this.value[0].data);
+	                const value = this.getValue();
 	                const statement = (isLegacyInputType
 	                    ? `@setInputType(${node.var}, ${value});`
 	                    : propertyName
@@ -18462,14 +19060,14 @@
 	                            : `${method}(${node.var}, "${name}", ${value});`);
 	                block.builders.hydrate.addLine(statement);
 	                // special case – autofocus. has to be handled in a bit of a weird way
-	                if (this.value === true && name === 'autofocus') {
+	                if (this.isTrue && name === 'autofocus') {
 	                    block.autofocus = node.var;
 	                }
 	            }
 	            if (isIndirectlyBoundValue) {
 	                const updateValue = `${node.var}.value = ${node.var}.__value;`;
 	                block.builders.hydrate.addLine(updateValue);
-	                if (isDynamic)
+	                if (this.isDynamic)
 	                    block.builders.update.addLine(updateValue);
 	            }
 	        }
@@ -18477,8 +19075,7 @@
 	            styleProps.forEach((prop) => {
 	                let value;
 	                if (isDynamic$1(prop.value)) {
-	                    const allDependencies = new Set();
-	                    let hasChangeableIndex;
+	                    const propDependencies = new Set();
 	                    value =
 	                        ((prop.value.length === 1 || prop.value[0].type === 'Text') ? '' : `"" + `) +
 	                            prop.value
@@ -18487,20 +19084,16 @@
 	                                    return stringify(chunk.data);
 	                                }
 	                                else {
-	                                    const { indexes } = block.contextualise(chunk.expression);
-	                                    const { dependencies, snippet } = chunk.metadata;
-	                                    if (Array.from(indexes).some(index => block.changeableIndexes.get(index))) {
-	                                        hasChangeableIndex = true;
-	                                    }
+	                                    const { dependencies, snippet } = chunk;
 	                                    dependencies.forEach(d => {
-	                                        allDependencies.add(d);
+	                                        propDependencies.add(d);
 	                                    });
-	                                    return getExpressionPrecedence(chunk.expression) <= 13 ? `( ${snippet} )` : snippet;
+	                                    return chunk.getPrecedence() <= 13 ? `(${snippet})` : snippet;
 	                                }
 	                            })
 	                                .join(' + ');
-	                    if (allDependencies.size || hasChangeableIndex) {
-	                        const dependencies = Array.from(allDependencies);
+	                    if (propDependencies.size) {
+	                        const dependencies = Array.from(propDependencies);
 	                        const condition = ((block.hasOutroMethod ? `#outroing || ` : '') +
 	                            dependencies.map(dependency => `changed.${dependency}`).join(' || '));
 	                        block.builders.update.addConditional(condition, `@setStyle(${this.parent.var}, "${prop.key}", ${value});`);
@@ -18512,12 +19105,15 @@
 	                block.builders.hydrate.addLine(`@setStyle(${this.parent.var}, "${prop.key}", ${value});`);
 	            });
 	        }
-	        isDynamic() {
-	            if (this.value === true || this.value.length === 0)
-	                return false;
-	            if (this.value.length > 1)
-	                return true;
-	            return this.value[0].type !== 'Text';
+	        stringifyForSsr() {
+	            return this.chunks
+	                .map((chunk) => {
+	                if (chunk.type === 'Text') {
+	                    return escapeTemplate(escape(chunk.data).replace(/"/g, '&quot;'));
+	                }
+	                return '${@escape(' + chunk.snippet + ')}';
+	            })
+	                .join('');
 	        }
 	    }
 	    // source: https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes
@@ -18852,363 +19448,69 @@
 	        return value.length > 1 || value[0].type !== 'Text';
 	    }
 
-	    class Node$1 {
-	        constructor(data) {
-	            Object.assign(this, data);
-	        }
-	        cannotUseInnerHTML() {
-	            if (this.canUseInnerHTML !== false) {
-	                this.canUseInnerHTML = false;
-	                if (this.parent) {
-	                    if (!this.parent.cannotUseInnerHTML)
-	                        console.log(this.parent.type, this.type);
-	                    this.parent.cannotUseInnerHTML();
-	                }
-	            }
-	        }
-	        init(block, stripWhitespace, nextSibling) {
-	            // implemented by subclasses
-	        }
-	        initChildren(block, stripWhitespace, nextSibling) {
-	            // glue text nodes together
-	            const cleaned = [];
-	            let lastChild;
-	            let windowComponent;
-	            this.children.forEach((child) => {
-	                if (child.type === 'Comment')
-	                    return;
-	                // special case — this is an easy way to remove whitespace surrounding
-	                // <svelte:window/>. lil hacky but it works
-	                if (child.type === 'Window') {
-	                    windowComponent = child;
-	                    return;
-	                }
-	                if (child.type === 'Text' && lastChild && lastChild.type === 'Text') {
-	                    lastChild.data += child.data;
-	                    lastChild.end = child.end;
-	                }
-	                else {
-	                    if (child.type === 'Text' && stripWhitespace && cleaned.length === 0) {
-	                        child.data = trimStart(child.data);
-	                        if (child.data)
-	                            cleaned.push(child);
-	                    }
-	                    else {
-	                        cleaned.push(child);
-	                    }
-	                }
-	                lastChild = child;
-	            });
-	            lastChild = null;
-	            cleaned.forEach((child, i) => {
-	                child.canUseInnerHTML = !this.generator.hydratable;
-	                child.init(block, stripWhitespace, cleaned[i + 1] || nextSibling);
-	                if (child.shouldSkip)
-	                    return;
-	                if (lastChild)
-	                    lastChild.next = child;
-	                child.prev = lastChild;
-	                lastChild = child;
-	            });
-	            // We want to remove trailing whitespace inside an element/component/block,
-	            // *unless* there is no whitespace between this node and its next sibling
-	            if (stripWhitespace && lastChild && lastChild.type === 'Text') {
-	                const shouldTrim = (nextSibling ? (nextSibling.type === 'Text' && /^\s/.test(nextSibling.data)) : !this.hasAncestor('EachBlock'));
-	                if (shouldTrim) {
-	                    lastChild.data = trimEnd(lastChild.data);
-	                    if (!lastChild.data) {
-	                        cleaned.pop();
-	                        lastChild = cleaned[cleaned.length - 1];
-	                        lastChild.next = null;
-	                    }
-	                }
-	            }
-	            this.children = cleaned;
-	            if (windowComponent)
-	                cleaned.unshift(windowComponent);
-	        }
-	        build(block, parentNode, parentNodes) {
-	            // implemented by subclasses
-	        }
-	        isDomNode() {
-	            return this.type === 'Element' || this.type === 'Text' || this.type === 'MustacheTag';
-	        }
-	        hasAncestor(type) {
-	            return this.parent ?
-	                this.parent.type === type || this.parent.hasAncestor(type) :
-	                false;
-	        }
-	        findNearest(selector) {
-	            if (selector.test(this.type))
-	                return this;
-	            if (this.parent)
-	                return this.parent.findNearest(selector);
-	        }
-	        getOrCreateAnchor(block, parentNode, parentNodes) {
-	            // TODO use this in EachBlock and IfBlock — tricky because
-	            // children need to be created first
-	            const needsAnchor = this.next ? !this.next.isDomNode() : !parentNode || !this.parent.isDomNode();
-	            const anchor = needsAnchor
-	                ? block.getUniqueName(`${this.var}_anchor`)
-	                : (this.next && this.next.var) || 'null';
-	            if (needsAnchor) {
-	                block.addElement(anchor, `@createComment()`, parentNodes && `@createComment()`, parentNode);
-	            }
-	            return anchor;
-	        }
-	        getUpdateMountNode(anchor) {
-	            return this.parent.isDomNode() ? this.parent.var : `${anchor}.parentNode`;
-	        }
-	        remount(name) {
-	            return `${this.var}.m(${name}._slotted.default, null);`;
-	        }
-	    }
-
-	    function createDebuggingComment(node, generator) {
-	        const { locate, source } = generator;
-	        let c = node.start;
-	        if (node.type === 'ElseBlock') {
-	            while (source[c - 1] !== '{')
-	                c -= 1;
-	            while (source[c - 1] === '{')
-	                c -= 1;
-	        }
-	        let d = node.expression ? node.expression.end : c;
-	        while (source[d] !== '}')
-	            d += 1;
-	        while (source[d] === '}')
-	            d += 1;
-	        const start = locate(c);
-	        const loc = `(${start.line + 1}:${start.column})`;
-	        return `${loc} ${source.slice(c, d)}`.replace(/\s/g, ' ');
-	    }
-
-	    class AwaitBlock extends Node$1 {
-	        init(block, stripWhitespace, nextSibling) {
-	            this.cannotUseInnerHTML();
-	            this.var = block.getUniqueName('await_block');
-	            block.addDependencies(this.metadata.dependencies);
-	            let dynamic = false;
-	            [
-	                ['pending', null],
-	                ['then', this.value],
-	                ['catch', this.error]
-	            ].forEach(([status, arg]) => {
-	                const child = this[status];
-	                child.block = block.child({
-	                    comment: createDebuggingComment(child, this.generator),
-	                    name: this.generator.getUniqueName(`create_${status}_block`),
-	                    contexts: new Map(block.contexts),
-	                    contextTypes: new Map(block.contextTypes)
-	                });
-	                if (arg) {
-	                    child.block.context = arg;
-	                    child.block.contexts.set(arg, arg); // TODO should be using getUniqueName
-	                    child.block.contextTypes.set(arg, status);
-	                }
-	                child.initChildren(child.block, stripWhitespace, nextSibling);
-	                this.generator.blocks.push(child.block);
-	                if (child.block.dependencies.size > 0) {
-	                    dynamic = true;
-	                    block.addDependencies(child.block.dependencies);
-	                }
-	            });
-	            this.pending.block.hasUpdateMethod = dynamic;
-	            this.then.block.hasUpdateMethod = dynamic;
-	            this.catch.block.hasUpdateMethod = dynamic;
-	        }
-	        build(block, parentNode, parentNodes) {
-	            const name = this.var;
-	            const anchor = this.getOrCreateAnchor(block, parentNode, parentNodes);
-	            const updateMountNode = this.getUpdateMountNode(anchor);
-	            block.contextualise(this.expression);
-	            const { snippet } = this.metadata;
-	            const promise = block.getUniqueName(`promise`);
-	            const resolved = block.getUniqueName(`resolved`);
-	            const await_block = block.getUniqueName(`await_block`);
-	            const await_block_type = block.getUniqueName(`await_block_type`);
-	            const token = block.getUniqueName(`token`);
-	            const await_token = block.getUniqueName(`await_token`);
-	            const handle_promise = block.getUniqueName(`handle_promise`);
-	            const replace_await_block = block.getUniqueName(`replace_await_block`);
-	            const old_block = block.getUniqueName(`old_block`);
-	            const value = block.getUniqueName(`value`);
-	            const error = block.getUniqueName(`error`);
-	            const create_pending_block = this.pending.block.name;
-	            const create_then_block = this.then.block.name;
-	            const create_catch_block = this.catch.block.name;
-	            block.addVariable(await_block);
-	            block.addVariable(await_block_type);
-	            block.addVariable(await_token);
-	            block.addVariable(promise);
-	            block.addVariable(resolved);
-	            // the `#component.root.set({})` below is just a cheap way to flush
-	            // any oncreate handlers. We could have a dedicated `flush()` method
-	            // but it's probably not worth it
-	            block.builders.init.addBlock(deindent `
-			function ${replace_await_block}(${token}, type, state) {
-				if (${token} !== ${await_token}) return;
-
-				var ${old_block} = ${await_block};
-				${await_block} = type && (${await_block_type} = type)(#component, state);
-
-				if (${old_block}) {
-					${old_block}.u();
-					${old_block}.d();
-					${await_block}.c();
-					${await_block}.m(${updateMountNode}, ${anchor});
-
-					#component.root.set({});
-				}
-			}
-
-			function ${handle_promise}(${promise}, state) {
-				var ${token} = ${await_token} = {};
-
-				if (@isPromise(${promise})) {
-					${promise}.then(function(${value}) {
-						${this.then.block.context ? deindent `
-							var state = #component.get();
-							${resolved} = { ${this.then.block.context}: ${value} };
-							${replace_await_block}(${token}, ${create_then_block}, @assign(@assign({}, state), ${resolved}));
-						` : deindent `
-							${replace_await_block}(${token}, null, null);
-						`}
-					}, function (${error}) {
-						${this.catch.block.context ? deindent `
-							var state = #component.get();
-							${resolved} = { ${this.catch.block.context}: ${error} };
-							${replace_await_block}(${token}, ${create_catch_block}, @assign(@assign({}, state), ${resolved}));
-						` : deindent `
-							${replace_await_block}(${token}, null, null);
-						`}
-					});
-
-					// if we previously had a then/catch block, destroy it
-					if (${await_block_type} !== ${create_pending_block}) {
-						${replace_await_block}(${token}, ${create_pending_block}, state);
-						return true;
-					}
-				} else {
-					${resolved} = { ${this.then.block.context}: ${promise} };
-					if (${await_block_type} !== ${create_then_block}) {
-						${replace_await_block}(${token}, ${create_then_block}, @assign(@assign({}, state), ${resolved}));
-						return true;
-					}
-				}
-			}
-
-			${handle_promise}(${promise} = ${snippet}, state);
-		`);
-	            block.builders.create.addBlock(deindent `
-			${await_block}.c();
-		`);
-	            if (parentNodes) {
-	                block.builders.claim.addBlock(deindent `
-				${await_block}.l(${parentNodes});
-			`);
-	            }
-	            const initialMountNode = parentNode || '#target';
-	            const anchorNode = parentNode ? 'null' : 'anchor';
-	            block.builders.mount.addBlock(deindent `
-			${await_block}.m(${initialMountNode}, ${anchorNode});
-		`);
-	            const conditions = [];
-	            if (this.metadata.dependencies) {
-	                conditions.push(`(${this.metadata.dependencies.map(dep => `'${dep}' in changed`).join(' || ')})`);
-	            }
-	            conditions.push(`${promise} !== (${promise} = ${snippet})`, `${handle_promise}(${promise}, state)`);
-	            if (this.pending.block.hasUpdateMethod) {
-	                block.builders.update.addBlock(deindent `
-				if (${conditions.join(' && ')}) {
-					// nothing
-				} else {
-					${await_block}.p(changed, @assign(@assign({}, state), ${resolved}));
-				}
-			`);
-	            }
-	            else {
-	                block.builders.update.addBlock(deindent `
-				if (${conditions.join(' && ')}) {
-					${await_block}.c();
-					${await_block}.m(${anchor}.parentNode, ${anchor});
-				}
-			`);
-	            }
-	            block.builders.unmount.addBlock(deindent `
-			${await_block}.u();
-		`);
-	            block.builders.destroy.addBlock(deindent `
-			${await_token} = null;
-			${await_block}.d();
-		`);
-	            [this.pending, this.then, this.catch].forEach(status => {
-	                status.children.forEach(child => {
-	                    child.build(status.block, null, 'nodes');
-	                });
-	            });
-	        }
-	    }
-
-	    class Action extends Node$1 {
-	    }
-
-	    function getObject(node) {
-	        while (node.type === 'MemberExpression')
-	            node = node.object;
-	        return node;
-	    }
-
-	    function getTailSnippet(node) {
-	        const end = node.end;
-	        while (node.type === 'MemberExpression')
-	            node = node.object;
-	        const start = node.end;
-	        return `[✂${start}-${end}✂]`;
-	    }
-
 	    const readOnlyMediaAttributes = new Set([
 	        'duration',
 	        'buffered',
 	        'seekable',
 	        'played'
 	    ]);
+	    // TODO a lot of this element-specific stuff should live in Element —
+	    // Binding should ideally be agnostic between Element and Component
 	    class Binding extends Node$1 {
-	        munge(block, allUsedContexts) {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.name = info.name;
+	            this.value = new Expression(compiler, this, scope, info.value);
+	            let obj;
+	            let prop;
+	            const { name } = getObject(this.value.node);
+	            this.isContextual = scope.names.has(name);
+	            if (this.value.node.type === 'MemberExpression') {
+	                prop = `[✂${this.value.node.property.start}-${this.value.node.property.end}✂]`;
+	                if (!this.value.node.computed)
+	                    prop = `'${prop}'`;
+	                obj = `[✂${this.value.node.object.start}-${this.value.node.object.end}✂]`;
+	                this.usesContext = true;
+	            }
+	            else {
+	                obj = 'ctx';
+	                prop = `'${name}'`;
+	                this.usesContext = scope.names.has(name);
+	            }
+	            this.obj = obj;
+	            this.prop = prop;
+	        }
+	        munge(block) {
 	            const node = this.parent;
 	            const needsLock = node.name !== 'input' || !/radio|checkbox|range|color/.test(node.getStaticAttributeValue('type'));
-	            const isReadOnly = node.isMediaNode() && readOnlyMediaAttributes.has(this.name);
+	            const isReadOnly = ((node.isMediaNode() && readOnlyMediaAttributes.has(this.name)) ||
+	                dimensions.test(this.name));
 	            let updateCondition;
-	            const { name } = getObject(this.value);
-	            const { contexts } = block.contextualise(this.value);
-	            const { snippet } = this.metadata;
+	            const { name } = getObject(this.value.node);
+	            const { snippet } = this.value;
 	            // special case: if you have e.g. `<input type=checkbox bind:checked=selected.done>`
 	            // and `selected` is an object chosen with a <select>, then when `checked` changes,
 	            // we need to tell the component to update all the values `selected` might be
 	            // pointing to
 	            // TODO should this happen in preprocess?
-	            const dependencies = this.metadata.dependencies.slice();
-	            this.metadata.dependencies.forEach((prop) => {
-	                const indirectDependencies = this.generator.indirectDependencies.get(prop);
+	            const dependencies = new Set(this.value.dependencies);
+	            this.value.dependencies.forEach((prop) => {
+	                const indirectDependencies = this.compiler.indirectDependencies.get(prop);
 	                if (indirectDependencies) {
 	                    indirectDependencies.forEach(indirectDependency => {
-	                        if (!~dependencies.indexOf(indirectDependency))
-	                            dependencies.push(indirectDependency);
+	                        dependencies.add(indirectDependency);
 	                    });
 	                }
 	            });
-	            contexts.forEach(context => {
-	                allUsedContexts.add(context);
-	            });
 	            // view to model
-	            const valueFromDom = getValueFromDom(this.generator, node, this);
-	            const handler = getEventHandler(this.generator, block, name, snippet, this, dependencies, valueFromDom);
+	            const valueFromDom = getValueFromDom(this.compiler, node, this);
+	            const handler = getEventHandler(this, this.compiler, block, name, snippet, dependencies, valueFromDom);
 	            // model to view
 	            let updateDom = getDomUpdater(node, this, snippet);
 	            let initialUpdate = updateDom;
 	            // special cases
 	            if (this.name === 'group') {
-	                const bindingGroup = getBindingGroup(this.generator, this.value);
+	                const bindingGroup = getBindingGroup(this.compiler, this.value.node);
 	                block.builders.hydrate.addLine(`#component._bindingGroups[${bindingGroup}].push(${node.var});`);
 	                block.builders.destroy.addLine(`#component._bindingGroups[${bindingGroup}].splice(#component._bindingGroups[${bindingGroup}].indexOf(${node.var}), 1);`);
 	            }
@@ -19224,6 +19526,11 @@
 	                updateCondition = `${last} !== (${last} = ${snippet})`;
 	                updateDom = `${node.var}[${last} ? "pause" : "play"]();`;
 	                initialUpdate = null;
+	            }
+	            // bind:offsetWidth and bind:offsetHeight
+	            if (dimensions.test(this.name)) {
+	                initialUpdate = null;
+	                updateDom = null;
 	            }
 	            return {
 	                name: this.name,
@@ -19258,51 +19565,50 @@
 	        }
 	        return `${node.var}.${binding.name} = ${snippet};`;
 	    }
-	    function getBindingGroup(generator, value) {
+	    function getBindingGroup(compiler, value) {
 	        const { parts } = flattenReference(value); // TODO handle cases involving computed member expressions
 	        const keypath = parts.join('.');
 	        // TODO handle contextual bindings — `keypath` should include unique ID of
 	        // each block that provides context
-	        let index = generator.bindingGroups.indexOf(keypath);
+	        let index = compiler.bindingGroups.indexOf(keypath);
 	        if (index === -1) {
-	            index = generator.bindingGroups.length;
-	            generator.bindingGroups.push(keypath);
+	            index = compiler.bindingGroups.length;
+	            compiler.bindingGroups.push(keypath);
 	        }
 	        return index;
 	    }
-	    function getEventHandler(generator, block, name, snippet, attribute, dependencies, value) {
-	        const storeDependencies = dependencies.filter(prop => prop[0] === '$').map(prop => prop.slice(1));
-	        dependencies = dependencies.filter(prop => prop[0] !== '$');
-	        if (block.contexts.has(name)) {
-	            const tail = attribute.value.type === 'MemberExpression'
-	                ? getTailSnippet(attribute.value)
+	    function getEventHandler(binding, compiler, block, name, snippet, dependencies, value, isContextual) {
+	        const storeDependencies = [...dependencies].filter(prop => prop[0] === '$').map(prop => prop.slice(1));
+	        dependencies = [...dependencies].filter(prop => prop[0] !== '$');
+	        if (binding.isContextual) {
+	            const tail = binding.value.node.type === 'MemberExpression'
+	                ? getTailSnippet(binding.value.node)
 	                : '';
-	            const list = `context.${block.listNames.get(name)}`;
-	            const index = `context.${block.indexNames.get(name)}`;
+	            const head = block.bindings.get(name);
 	            return {
 	                usesContext: true,
 	                usesState: true,
 	                usesStore: storeDependencies.length > 0,
-	                mutation: `${list}[${index}]${tail} = ${value};`,
-	                props: dependencies.map(prop => `${prop}: state.${prop}`),
+	                mutation: `${head}${tail} = ${value};`,
+	                props: dependencies.map(prop => `${prop}: ctx.${prop}`),
 	                storeProps: storeDependencies.map(prop => `${prop}: $.${prop}`)
 	            };
 	        }
-	        if (attribute.value.type === 'MemberExpression') {
+	        if (binding.value.node.type === 'MemberExpression') {
 	            // This is a little confusing, and should probably be tidied up
 	            // at some point. It addresses a tricky bug (#893), wherein
 	            // Svelte tries to `set()` a computed property, which throws an
 	            // error in dev mode. a) it's possible that we should be
 	            // replacing computations with *their* dependencies, and b)
-	            // we should probably populate `generator.readonly` sooner so
+	            // we should probably populate `compiler.target.readonly` sooner so
 	            // that we don't have to do the `.some()` here
-	            dependencies = dependencies.filter(prop => !generator.computations.some(computation => computation.key === prop));
+	            dependencies = dependencies.filter(prop => !compiler.computations.some(computation => computation.key === prop));
 	            return {
 	                usesContext: false,
 	                usesState: true,
 	                usesStore: storeDependencies.length > 0,
 	                mutation: `${snippet} = ${value}`,
-	                props: dependencies.map((prop) => `${prop}: state.${prop}`),
+	                props: dependencies.map((prop) => `${prop}: ctx.${prop}`),
 	                storeProps: storeDependencies.map(prop => `${prop}: $.${prop}`)
 	            };
 	        }
@@ -19325,7 +19631,7 @@
 	            storeProps
 	        };
 	    }
-	    function getValueFromDom(generator, node, binding) {
+	    function getValueFromDom(compiler, node, binding) {
 	        // <select bind:value='selected>
 	        if (node.name === 'select') {
 	            return node.getStaticAttributeValue('multiple') === true ?
@@ -19335,7 +19641,7 @@
 	        const type = node.getStaticAttributeValue('type');
 	        // <input type='checkbox' bind:group='foo'>
 	        if (binding.name === 'group') {
-	            const bindingGroup = getBindingGroup(generator, binding.value);
+	            const bindingGroup = getBindingGroup(compiler, binding.value.node);
 	            if (type === 'checkbox') {
 	                return `@getBindingGroupValue(#component._bindingGroups[${bindingGroup}])`;
 	            }
@@ -19352,135 +19658,113 @@
 	        return `${node.var}.${binding.name}`;
 	    }
 
-	    class CatchBlock extends Node$1 {
-	    }
-
-	    class Comment$2 extends Node$1 {
-	    }
-
-	    function stringifyProps(props) {
-	        if (!props.length)
-	            return '{}';
-	        const joined = props.join(', ');
-	        if (joined.length > 40) {
-	            // make larger data objects readable
-	            return `{\n\t${props.join(',\n\t')}\n}`;
-	        }
-	        return `{ ${joined} }`;
-	    }
-
-	    function quoteIfNecessary(name) {
-	        if (!isValidIdentifier(name))
-	            return `"${name}"`;
-	        return name;
-	    }
-
-	    function mungeAttribute(attribute, block) {
-	        if (attribute.type === 'Spread') {
-	            block.contextualise(attribute.expression); // TODO remove
-	            const { dependencies, snippet } = attribute.metadata;
-	            return {
-	                spread: true,
-	                name: null,
-	                value: snippet,
-	                dynamic: dependencies.length > 0,
-	                dependencies
-	            };
-	        }
-	        if (attribute.value === true) {
-	            // attributes without values, e.g. <textarea readonly>
-	            return {
-	                spread: false,
-	                name: attribute.name,
-	                value: true,
-	                dynamic: false,
-	                dependencies: []
-	            };
-	        }
-	        if (attribute.value.length === 0) {
-	            return {
-	                spread: false,
-	                name: attribute.name,
-	                value: `''`,
-	                dynamic: false,
-	                dependencies: []
-	            };
-	        }
-	        if (attribute.value.length === 1) {
-	            const value = attribute.value[0];
-	            if (value.type === 'Text') {
-	                // static attributes
-	                return {
-	                    spread: false,
-	                    name: attribute.name,
-	                    value: stringify(value.data),
-	                    dynamic: false,
-	                    dependencies: []
-	                };
+	    class EventHandler extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.name = info.name;
+	            this.dependencies = new Set();
+	            if (info.expression) {
+	                this.callee = flattenReference(info.expression.callee);
+	                this.insertionPoint = info.expression.start;
+	                this.usesComponent = !validCalleeObjects.has(this.callee.name);
+	                this.usesContext = false;
+	                this.args = info.expression.arguments.map(param => {
+	                    const expression = new Expression(compiler, this, scope, param);
+	                    addToSet(this.dependencies, expression.dependencies);
+	                    if (expression.usesContext)
+	                        this.usesContext = true;
+	                    return expression;
+	                });
+	                this.snippet = `[✂${info.expression.start}-${info.expression.end}✂];`;
 	            }
-	            // simple dynamic attributes
-	            block.contextualise(value.expression); // TODO remove
-	            const { dependencies, snippet } = value.metadata;
-	            // TODO only update attributes that have changed
-	            return {
-	                spread: false,
-	                name: attribute.name,
-	                value: snippet,
-	                dependencies,
-	                dynamic: true
-	            };
+	            else {
+	                this.callee = null;
+	                this.insertionPoint = null;
+	                this.args = null;
+	                this.usesComponent = true;
+	                this.usesContext = false;
+	                this.snippet = null; // TODO handle shorthand events here?
+	            }
+	            this.isCustomEvent = compiler.events.has(this.name);
+	            this.shouldHoist = !this.isCustomEvent && parent.hasAncestor('EachBlock');
 	        }
-	        // otherwise we're dealing with a complex dynamic attribute
-	        const allDependencies = new Set();
-	        const value = (attribute.value[0].type === 'Text' ? '' : `"" + `) +
-	            attribute.value
-	                .map((chunk) => {
-	                if (chunk.type === 'Text') {
-	                    return stringify(chunk.data);
+	        render(compiler, block, hoisted) {
+	            if (this.insertionPoint === null)
+	                return; // TODO handle shorthand events here?
+	            if (!validCalleeObjects.has(this.callee.name)) {
+	                const component = hoisted ? `component` : block.alias(`component`);
+	                // allow event.stopPropagation(), this.select() etc
+	                // TODO verify that it's a valid callee (i.e. built-in or declared method)
+	                if (this.callee.name[0] === '$' && !compiler.methods.has(this.callee.name)) {
+	                    compiler.code.overwrite(this.insertionPoint, this.insertionPoint + 1, `${component}.store.`);
 	                }
 	                else {
-	                    block.contextualise(chunk.expression); // TODO remove
-	                    const { dependencies, snippet } = chunk.metadata;
-	                    dependencies.forEach((dependency) => {
-	                        allDependencies.add(dependency);
-	                    });
-	                    return getExpressionPrecedence(chunk.expression) <= 13 ? `(${snippet})` : snippet;
+	                    compiler.code.prependRight(this.insertionPoint, `${component}.`);
 	                }
-	            })
-	                .join(' + ');
-	        return {
-	            spread: false,
-	            name: attribute.name,
-	            value,
-	            dependencies: Array.from(allDependencies),
-	            dynamic: true
-	        };
+	            }
+	            if (this.isCustomEvent) {
+	                this.args.forEach(arg => {
+	                    arg.overwriteThis(this.parent.var);
+	                });
+	                if (this.callee && this.callee.name === 'this') {
+	                    const node = this.callee.nodes[0];
+	                    compiler.code.overwrite(node.start, node.end, this.parent.var, {
+	                        storeName: true,
+	                        contentOnly: true
+	                    });
+	                }
+	            }
+	        }
 	    }
 
 	    class Component extends Node$1 {
-	        init(block, stripWhitespace, nextSibling) {
-	            this.cannotUseInnerHTML();
-	            this.attributes.forEach((attribute) => {
-	                if (attribute.type === 'Attribute' && attribute.value !== true) {
-	                    attribute.value.forEach((chunk) => {
-	                        if (chunk.type !== 'Text') {
-	                            const dependencies = chunk.metadata.dependencies;
-	                            block.addDependencies(dependencies);
-	                        }
-	                    });
-	                }
-	                else {
-	                    if (attribute.type === 'EventHandler' && attribute.expression) {
-	                        attribute.expression.arguments.forEach((arg) => {
-	                            block.addDependencies(arg.metadata.dependencies);
-	                        });
-	                    }
-	                    else if (attribute.type === 'Binding' || attribute.type === 'Spread') {
-	                        block.addDependencies(attribute.metadata.dependencies);
-	                    }
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            compiler.hasComponents = true;
+	            this.name = info.name;
+	            this.expression = this.name === 'svelte:component'
+	                ? new Expression(compiler, this, scope, info.expression)
+	                : null;
+	            this.attributes = [];
+	            this.bindings = [];
+	            this.handlers = [];
+	            info.attributes.forEach(node => {
+	                switch (node.type) {
+	                    case 'Attribute':
+	                    case 'Spread':
+	                        this.attributes.push(new Attribute(compiler, this, scope, node));
+	                        break;
+	                    case 'Binding':
+	                        this.bindings.push(new Binding(compiler, this, scope, node));
+	                        break;
+	                    case 'EventHandler':
+	                        this.handlers.push(new EventHandler(compiler, this, scope, node));
+	                        break;
+	                    case 'Ref':
+	                        // TODO catch this in validation
+	                        if (this.ref)
+	                            throw new Error(`Duplicate refs`);
+	                        compiler.usesRefs = true;
+	                        this.ref = node.name;
+	                        break;
+	                    default:
+	                        throw new Error(`Not implemented: ${node.type}`);
 	                }
 	            });
-	            this.var = block.getUniqueName((this.name === 'svelte:self' ? this.generator.name :
+	            this.children = mapChildren(compiler, this, scope, info.children);
+	        }
+	        init(block, stripWhitespace, nextSibling) {
+	            this.cannotUseInnerHTML();
+	            this.attributes.forEach(attr => {
+	                block.addDependencies(attr.dependencies);
+	            });
+	            this.bindings.forEach(binding => {
+	                block.addDependencies(binding.value.dependencies);
+	            });
+	            this.handlers.forEach(handler => {
+	                block.addDependencies(handler.dependencies);
+	            });
+	            this.var = block.getUniqueName((this.name === 'svelte:self' ? this.compiler.name :
 	                this.name === 'svelte:component' ? 'switch_instance' :
 	                    this.name).toLowerCase());
 	            if (this.children.length) {
@@ -19491,8 +19775,7 @@
 	            }
 	        }
 	        build(block, parentNode, parentNodes) {
-	            const { generator } = this;
-	            generator.hasComponents = true;
+	            const { compiler } = this;
 	            const name = this.var;
 	            const componentInitProperties = [`root: #component.root`];
 	            if (this.children.length > 0) {
@@ -19502,52 +19785,40 @@
 	                    child.build(block, `${this.var}._slotted.default`, 'nodes');
 	                });
 	            }
-	            const allContexts = new Set();
 	            const statements = [];
 	            const name_initial_data = block.getUniqueName(`${name}_initial_data`);
 	            const name_changes = block.getUniqueName(`${name}_changes`);
 	            let name_updating;
 	            let beforecreate = null;
-	            const attributes = this.attributes
-	                .filter(a => a.type === 'Attribute' || a.type === 'Spread')
-	                .map(a => mungeAttribute(a, block));
-	            const bindings = this.attributes
-	                .filter(a => a.type === 'Binding')
-	                .map(a => mungeBinding(a, block));
-	            const eventHandlers = this.attributes
-	                .filter((a) => a.type === 'EventHandler')
-	                .map(a => mungeEventHandler(generator, this, a, block, allContexts));
-	            const ref = this.attributes.find((a) => a.type === 'Ref');
-	            if (ref)
-	                generator.usesRefs = true;
 	            const updates = [];
-	            const usesSpread = !!attributes.find(a => a.spread);
+	            const usesSpread = !!this.attributes.find(a => a.isSpread);
 	            const attributeObject = usesSpread
 	                ? '{}'
-	                : stringifyProps(attributes.map((attribute) => `${attribute.name}: ${attribute.value}`));
-	            if (attributes.length || bindings.length) {
+	                : stringifyProps(this.attributes.map(attr => `${attr.name}: ${attr.getValue()}`));
+	            if (this.attributes.length || this.bindings.length) {
 	                componentInitProperties.push(`data: ${name_initial_data}`);
 	            }
-	            if ((!usesSpread && attributes.filter(a => a.dynamic).length) || bindings.length) {
+	            if ((!usesSpread && this.attributes.filter(a => a.isDynamic).length) || this.bindings.length) {
 	                updates.push(`var ${name_changes} = {};`);
 	            }
-	            if (attributes.length) {
+	            if (this.attributes.length) {
 	                if (usesSpread) {
 	                    const levels = block.getUniqueName(`${this.var}_spread_levels`);
 	                    const initialProps = [];
 	                    const changes = [];
-	                    attributes
-	                        .forEach(munged => {
-	                        const { spread, name, dynamic, value, dependencies } = munged;
-	                        if (spread) {
+	                    this.attributes.forEach(attr => {
+	                        const { name, dependencies } = attr;
+	                        const condition = dependencies.size > 0
+	                            ? [...dependencies].map(d => `changed.${d}`).join(' || ')
+	                            : null;
+	                        if (attr.isSpread) {
+	                            const value = attr.expression.snippet;
 	                            initialProps.push(value);
-	                            const condition = dependencies && dependencies.map(d => `changed.${d}`).join(' || ');
 	                            changes.push(condition ? `${condition} && ${value}` : value);
 	                        }
 	                        else {
-	                            const obj = `{ ${quoteIfNecessary(name)}: ${value} }`;
+	                            const obj = `{ ${quoteIfNecessary(name)}: ${attr.getValue()} }`;
 	                            initialProps.push(obj);
-	                            const condition = dependencies && dependencies.map(d => `changed.${d}`).join(' || ');
 	                            changes.push(condition ? `${condition} && ${obj}` : obj);
 	                        }
 	                    });
@@ -19568,46 +19839,40 @@
 				`);
 	                }
 	                else {
-	                    attributes
-	                        .filter((attribute) => attribute.dynamic)
+	                    this.attributes
+	                        .filter((attribute) => attribute.isDynamic)
 	                        .forEach((attribute) => {
-	                        if (attribute.dependencies.length) {
+	                        if (attribute.dependencies.size > 0) {
 	                            updates.push(deindent `
-								if (${attribute.dependencies
+								if (${[...attribute.dependencies]
                             .map(dependency => `changed.${dependency}`)
-                            .join(' || ')}) ${name_changes}.${attribute.name} = ${attribute.value};
+                            .join(' || ')}) ${name_changes}.${attribute.name} = ${attribute.getValue()};
 							`);
-	                        }
-	                        else {
-	                            // TODO this is an odd situation to encounter – I *think* it should only happen with
-	                            // each block indices, in which case it may be possible to optimise this
-	                            updates.push(`${name_changes}.${attribute.name} = ${attribute.value};`);
 	                        }
 	                    });
 	                }
 	            }
-	            if (bindings.length) {
-	                generator.hasComplexBindings = true;
+	            if (this.bindings.length) {
+	                compiler.target.hasComplexBindings = true;
 	                name_updating = block.alias(`${name}_updating`);
 	                block.addVariable(name_updating, '{}');
 	                let hasLocalBindings = false;
 	                let hasStoreBindings = false;
 	                const builder = new CodeBuilder();
-	                bindings.forEach((binding) => {
-	                    let { name: key } = getObject(binding.value);
-	                    binding.contexts.forEach(context => {
-	                        allContexts.add(context);
-	                    });
+	                this.bindings.forEach((binding) => {
+	                    let { name: key } = getObject(binding.value.node);
 	                    let setFromChild;
-	                    if (block.contexts.has(key)) {
-	                        const computed = isComputed$1(binding.value);
-	                        const tail = binding.value.type === 'MemberExpression' ? getTailSnippet(binding.value) : '';
-	                        const list = block.listNames.get(key);
-	                        const index = block.indexNames.get(key);
+	                    if (binding.isContextual) {
+	                        const computed = isComputed$1(binding.value.node);
+	                        const tail = binding.value.node.type === 'MemberExpression' ? getTailSnippet(binding.value.node) : '';
+	                        const head = block.bindings.get(key);
+	                        const lhs = binding.value.node.type === 'MemberExpression'
+	                            ? binding.value.snippet
+	                            : `${head}${tail} = childState.${binding.name}`;
 	                        setFromChild = deindent `
-						${list}[${index}]${tail} = childState.${binding.name};
+						${lhs} = childState.${binding.name};
 
-						${binding.dependencies
+						${[...binding.value.dependencies]
                         .map((name) => {
                         const isStoreProp = name[0] === '$';
                         const prop = isStoreProp ? name.slice(1) : name;
@@ -19616,7 +19881,7 @@
                             hasStoreBindings = true;
                         else
                             hasLocalBindings = true;
-                        return `${newState}.${prop} = state.${name};`;
+                        return `${newState}.${prop} = ctx.${name};`;
                     })}
 					`;
 	                    }
@@ -19628,10 +19893,10 @@
 	                            hasStoreBindings = true;
 	                        else
 	                            hasLocalBindings = true;
-	                        if (binding.value.type === 'MemberExpression') {
+	                        if (binding.value.node.type === 'MemberExpression') {
 	                            setFromChild = deindent `
-							${binding.snippet} = childState.${binding.name};
-							${newState}.${prop} = state.${key};
+							${binding.value.snippet} = childState.${binding.name};
+							${newState}.${prop} = ctx.${key};
 						`;
 	                        }
 	                        else {
@@ -19640,19 +19905,19 @@
 	                    }
 	                    statements.push(deindent `
 					if (${binding.prop} in ${binding.obj}) {
-						${name_initial_data}.${binding.name} = ${binding.snippet};
+						${name_initial_data}.${binding.name} = ${binding.value.snippet};
 						${name_updating}.${binding.name} = true;
 					}`);
 	                    builder.addConditional(`!${name_updating}.${binding.name} && changed.${binding.name}`, setFromChild);
 	                    updates.push(deindent `
-					if (!${name_updating}.${binding.name} && ${binding.dependencies.map((dependency) => `changed.${dependency}`).join(' || ')}) {
-						${name_changes}.${binding.name} = ${binding.snippet};
+					if (!${name_updating}.${binding.name} && ${[...binding.value.dependencies].map((dependency) => `changed.${dependency}`).join(' || ')}) {
+						${name_changes}.${binding.name} = ${binding.value.snippet};
 						${name_updating}.${binding.name} = true;
 					}
 				`);
 	                });
+	                block.maintainContext = true; // TODO put this somewhere more logical
 	                const initialisers = [
-	                    'state = #component.get()',
 	                    hasLocalBindings && 'newState = {}',
 	                    hasStoreBindings && 'newStoreState = {}',
 	                ].filter(Boolean).join(', ');
@@ -19668,21 +19933,26 @@
 			`);
 	                beforecreate = deindent `
 				#component.root._beforecreate.push(function() {
-					${name}._bind({ ${bindings.map(b => `${b.name}: 1`).join(', ')} }, ${name}.get());
+					${name}._bind({ ${this.bindings.map(b => `${b.name}: 1`).join(', ')} }, ${name}.get());
 				});
 			`;
 	            }
+	            this.handlers.forEach(handler => {
+	                handler.var = block.getUniqueName(`${this.var}_${handler.name}`); // TODO this is hacky
+	                handler.render(compiler, block, false); // TODO hoist when possible
+	                if (handler.usesContext)
+	                    block.maintainContext = true; // TODO is there a better place to put this?
+	            });
 	            if (this.name === 'svelte:component') {
 	                const switch_value = block.getUniqueName('switch_value');
 	                const switch_props = block.getUniqueName('switch_props');
-	                block.contextualise(this.expression);
-	                const { dependencies, snippet } = this.metadata;
+	                const { dependencies, snippet } = this.expression;
 	                const anchor = this.getOrCreateAnchor(block, parentNode, parentNodes);
 	                block.builders.init.addBlock(deindent `
 				var ${switch_value} = ${snippet};
 
-				function ${switch_props}(state) {
-					${(attributes.length || bindings.length) && deindent `
+				function ${switch_props}(ctx) {
+					${(this.attributes.length || this.bindings.length) && deindent `
 					var ${name_initial_data} = ${attributeObject};`}
 					${statements}
 					return {
@@ -19691,14 +19961,14 @@
 				}
 
 				if (${switch_value}) {
-					var ${name} = new ${switch_value}(${switch_props}(state));
+					var ${name} = new ${switch_value}(${switch_props}(ctx));
 
 					${beforecreate}
 				}
 
-				${eventHandlers.map(handler => deindent `
+				${this.handlers.map(handler => deindent `
 					function ${handler.var}(event) {
-						${handler.body}
+						${handler.snippet}
 					}
 
 					if (${name}) ${name}.on("${handler.name}", ${handler.var});
@@ -19711,7 +19981,7 @@
 	                block.builders.mount.addBlock(deindent `
 				if (${name}) {
 					${name}._mount(${parentNode || '#target'}, ${parentNode ? 'null' : 'anchor'});
-					${ref && `#component.refs.${ref.name} = ${name};`}
+					${this.ref && `#component.refs.${this.ref} = ${name};`}
 				}
 			`);
 	                const updateMountNode = this.getUpdateMountNode(anchor);
@@ -19720,22 +19990,22 @@
 					if (${name}) ${name}.destroy();
 
 					if (${switch_value}) {
-						${name} = new ${switch_value}(${switch_props}(state));
+						${name} = new ${switch_value}(${switch_props}(ctx));
 						${name}._fragment.c();
 
 						${this.children.map(child => child.remount(name))}
 						${name}._mount(${updateMountNode}, ${anchor});
 
-						${eventHandlers.map(handler => deindent `
+						${this.handlers.map(handler => deindent `
 							${name}.on("${handler.name}", ${handler.var});
 						`)}
 
-						${ref && `#component.refs.${ref.name} = ${name};`}
+						${this.ref && `#component.refs.${this.ref} = ${name};`}
 					}
 
-					${ref && deindent `
-						else if (#component.refs.${ref.name} === ${name}) {
-							#component.refs.${ref.name} = null;
+					${this.ref && deindent `
+						else if (#component.refs.${this.ref} === ${name}) {
+							#component.refs.${this.ref} = null;
 						}`}
 				}
 			`);
@@ -19744,7 +20014,7 @@
 					else {
 						${updates}
 						${name}._set(${name_changes});
-						${bindings.length && `${name_updating} = {};`}
+						${this.bindings.length && `${name_updating} = {};`}
 					}
 				`);
 	                }
@@ -19754,10 +20024,10 @@
 	            }
 	            else {
 	                const expression = this.name === 'svelte:self'
-	                    ? generator.name
+	                    ? compiler.name
 	                    : `%components-${this.name}`;
 	                block.builders.init.addBlock(deindent `
-				${(attributes.length || bindings.length) && deindent `
+				${(this.attributes.length || this.bindings.length) && deindent `
 				var ${name_initial_data} = ${attributeObject};`}
 				${statements}
 				var ${name} = new ${expression}({
@@ -19766,13 +20036,13 @@
 
 				${beforecreate}
 
-				${eventHandlers.map(handler => deindent `
+				${this.handlers.map(handler => deindent `
 					${name}.on("${handler.name}", function(event) {
-						${handler.body}
+						${handler.snippet || `#component.fire("${handler.name}", event);`}
 					});
 				`)}
 
-				${ref && `#component.refs.${ref.name} = ${name};`}
+				${this.ref && `#component.refs.${this.ref} = ${name};`}
 			`);
 	                block.builders.create.addLine(`${name}._fragment.c();`);
 	                if (parentNodes) {
@@ -19783,87 +20053,114 @@
 	                    block.builders.update.addBlock(deindent `
 					${updates}
 					${name}._set(${name_changes});
-					${bindings.length && `${name_updating} = {};`}
+					${this.bindings.length && `${name_updating} = {};`}
 				`);
 	                }
 	                if (!parentNode)
 	                    block.builders.unmount.addLine(`${name}._unmount();`);
 	                block.builders.destroy.addLine(deindent `
 				${name}.destroy(false);
-				${ref && `if (#component.refs.${ref.name} === ${name}) #component.refs.${ref.name} = null;`}
+				${this.ref && `if (#component.refs.${this.ref} === ${name}) #component.refs.${this.ref} = null;`}
 			`);
 	            }
 	        }
 	        remount(name) {
 	            return `${this.var}._mount(${name}._slotted.default, null);`;
 	        }
-	    }
-	    function mungeBinding(binding, block) {
-	        const { name } = getObject(binding.value);
-	        const { contexts } = block.contextualise(binding.value);
-	        const { dependencies, snippet } = binding.metadata;
-	        const contextual = block.contexts.has(name);
-	        let obj;
-	        let prop;
-	        if (contextual) {
-	            obj = `state.${block.listNames.get(name)}`;
-	            prop = `${block.indexNames.get(name)}`;
-	        }
-	        else if (binding.value.type === 'MemberExpression') {
-	            prop = `[✂${binding.value.property.start}-${binding.value.property.end}✂]`;
-	            if (!binding.value.computed)
-	                prop = `'${prop}'`;
-	            obj = `[✂${binding.value.object.start}-${binding.value.object.end}✂]`;
-	        }
-	        else {
-	            obj = 'state';
-	            prop = `'${name}'`;
-	        }
-	        return {
-	            name: binding.name,
-	            value: binding.value,
-	            contexts,
-	            snippet,
-	            obj,
-	            prop,
-	            dependencies
-	        };
-	    }
-	    function mungeEventHandler(generator, node, handler, block, allContexts) {
-	        let body;
-	        if (handler.expression) {
-	            generator.addSourcemapLocations(handler.expression);
-	            // TODO try out repetition between this and element counterpart
-	            const flattened = flattenReference(handler.expression.callee);
-	            if (!validCalleeObjects.has(flattened.name)) {
-	                // allow event.stopPropagation(), this.select() etc
-	                // TODO verify that it's a valid callee (i.e. built-in or declared method)
-	                generator.code.prependRight(handler.expression.start, `${block.alias('component')}.`);
+	        ssr() {
+	            function stringifyAttribute(chunk) {
+	                if (chunk.type === 'Text') {
+	                    return escapeTemplate(escape(chunk.data));
+	                }
+	                return '${@escape( ' + chunk.snippet + ')}';
 	            }
-	            let usesState = false;
-	            handler.expression.arguments.forEach((arg) => {
-	                const { contexts } = block.contextualise(arg, null, true);
-	                if (contexts.has('state'))
-	                    usesState = true;
-	                contexts.forEach(context => {
-	                    allContexts.add(context);
-	                });
+	            const bindingProps = this.bindings.map(binding => {
+	                const { name } = getObject(binding.value.node);
+	                const tail = binding.value.node.type === 'MemberExpression'
+	                    ? getTailSnippet(binding.value.node)
+	                    : '';
+	                return `${binding.name}: ctx.${name}${tail}`;
 	            });
-	            body = deindent `
-			${usesState && `const state = #component.get();`}
-			[✂${handler.expression.start}-${handler.expression.end}✂];
-		`;
+	            function getAttributeValue(attribute) {
+	                if (attribute.isTrue)
+	                    return `true`;
+	                if (attribute.chunks.length === 0)
+	                    return `''`;
+	                if (attribute.chunks.length === 1) {
+	                    const chunk = attribute.chunks[0];
+	                    if (chunk.type === 'Text') {
+	                        return stringify(chunk.data);
+	                    }
+	                    return chunk.snippet;
+	                }
+	                return '`' + attribute.chunks.map(stringifyAttribute).join('') + '`';
+	            }
+	            const usesSpread = this.attributes.find(attr => attr.isSpread);
+	            const props = usesSpread
+	                ? `Object.assign(${this.attributes
+                .map(attribute => {
+                if (attribute.isSpread) {
+                    return attribute.expression.snippet;
+                }
+                else {
+                    return `{ ${attribute.name}: ${getAttributeValue(attribute)} }`;
+                }
+            })
+                .concat(bindingProps.map(p => `{ ${p} }`))
+                .join(', ')})`
+	                : `{ ${this.attributes
+                .map(attribute => `${attribute.name}: ${getAttributeValue(attribute)}`)
+                .concat(bindingProps)
+                .join(', ')} }`;
+	            const isDynamicComponent = this.name === 'svelte:component';
+	            const expression = (this.name === 'svelte:self' ? this.compiler.name :
+	                isDynamicComponent ? `((${this.expression.snippet}) || @missingComponent)` :
+	                    `%components-${this.name}`);
+	            this.bindings.forEach(binding => {
+	                const conditions = [];
+	                let node = this;
+	                while (node = node.parent) {
+	                    if (node.type === 'IfBlock') {
+	                        // TODO handle contextual bindings...
+	                        conditions.push(`(${node.expression.snippet})`);
+	                    }
+	                }
+	                conditions.push(`!('${binding.name}' in ctx)`);
+	                const { name } = getObject(binding.value.node);
+	                this.compiler.target.bindings.push(deindent `
+				if (${conditions.reverse().join('&&')}) {
+					tmp = ${expression}.data();
+					if ('${name}' in tmp) {
+						ctx.${binding.name} = tmp.${name};
+						settled = false;
+					}
+				}
+			`);
+	            });
+	            let open = `\${${expression}._render(__result, ${props}`;
+	            const options = [];
+	            options.push(`store: options.store`);
+	            if (this.children.length) {
+	                const appendTarget = {
+	                    slots: { default: '' },
+	                    slotStack: ['default']
+	                };
+	                this.compiler.target.appendTargets.push(appendTarget);
+	                this.children.forEach((child) => {
+	                    child.ssr();
+	                });
+	                const slotted = Object.keys(appendTarget.slots)
+	                    .map(name => `${name}: () => \`${appendTarget.slots[name]}\``)
+	                    .join(', ');
+	                options.push(`slotted: { ${slotted} }`);
+	                this.compiler.target.appendTargets.pop();
+	            }
+	            if (options.length) {
+	                open += `, { ${options.join(', ')} }`;
+	            }
+	            this.compiler.target.append(open);
+	            this.compiler.target.append(')}');
 	        }
-	        else {
-	            body = deindent `
-			#component.fire('${handler.name}', event);
-		`;
-	        }
-	        return {
-	            name: handler.name,
-	            var: block.getUniqueName(`${node.var}_${handler.name}`),
-	            body
-	        };
 	    }
 	    function isComputed$1(node) {
 	        while (node.type === 'MemberExpression') {
@@ -19874,64 +20171,72 @@
 	        return false;
 	    }
 
+	    class ElseBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, this, scope, info.children);
+	        }
+	    }
+
 	    class EachBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.expression = new Expression(compiler, this, scope, info.expression);
+	            this.context = info.context.name || 'each'; // TODO this is used to facilitate binding; currently fails with destructuring
+	            this.index = info.index;
+	            this.scope = scope.child();
+	            this.contexts = [];
+	            unpackDestructuring(this.contexts, info.context, '');
+	            this.contexts.forEach(context => {
+	                this.scope.add(context.key.name, this.expression.dependencies);
+	            });
+	            this.key = info.key
+	                ? new Expression(compiler, this, this.scope, info.key)
+	                : null;
+	            if (this.index) {
+	                // index can only change if this is a keyed each block
+	                const dependencies = this.key ? this.expression.dependencies : [];
+	                this.scope.add(this.index, dependencies);
+	            }
+	            this.children = mapChildren(compiler, this, this.scope, info.children);
+	            this.else = info.else
+	                ? new ElseBlock(compiler, this, this.scope, info.else)
+	                : null;
+	        }
 	        init(block, stripWhitespace, nextSibling) {
 	            this.cannotUseInnerHTML();
 	            this.var = block.getUniqueName(`each`);
 	            this.iterations = block.getUniqueName(`${this.var}_blocks`);
-	            this.each_context = block.getUniqueName(`${this.var}_context`);
-	            const { dependencies } = this.metadata;
+	            this.get_each_context = this.compiler.getUniqueName(`get_${this.var}_context`);
+	            const { dependencies } = this.expression;
 	            block.addDependencies(dependencies);
 	            this.block = block.child({
-	                comment: createDebuggingComment(this, this.generator),
-	                name: this.generator.getUniqueName('create_each_block'),
-	                context: this.context,
+	                comment: createDebuggingComment(this, this.compiler),
+	                name: this.compiler.getUniqueName('create_each_block'),
 	                key: this.key,
-	                contexts: new Map(block.contexts),
-	                contextTypes: new Map(block.contextTypes),
-	                indexes: new Map(block.indexes),
-	                changeableIndexes: new Map(block.changeableIndexes),
-	                indexNames: new Map(block.indexNames),
-	                listNames: new Map(block.listNames)
+	                bindings: new Map(block.bindings)
 	            });
-	            const listName = this.generator.getUniqueName('each_value');
-	            const indexName = this.index || this.generator.getUniqueName(`${this.context}_index`);
-	            this.block.contextTypes.set(this.context, 'each');
-	            this.block.indexNames.set(this.context, indexName);
-	            this.block.listNames.set(this.context, listName);
+	            this.each_block_value = this.compiler.getUniqueName('each_value');
+	            const indexName = this.index || this.compiler.getUniqueName(`${this.context}_index`);
+	            this.contexts.forEach(prop => {
+	                this.block.bindings.set(prop.key.name, `ctx.${this.each_block_value}[ctx.${indexName}]${prop.tail}`);
+	            });
 	            if (this.index) {
 	                this.block.getUniqueName(this.index); // this prevents name collisions (#1254)
-	                this.block.indexes.set(this.index, this.context);
-	                this.block.changeableIndexes.set(this.index, this.key); // TODO is this right?
 	            }
-	            const context = this.block.getUniqueName(this.context);
-	            this.block.contexts.set(this.context, context); // TODO this is now redundant?
-	            if (this.destructuredContexts) {
-	                for (let i = 0; i < this.destructuredContexts.length; i += 1) {
-	                    const context = this.block.getUniqueName(this.destructuredContexts[i]);
-	                    this.block.contexts.set(this.destructuredContexts[i], context);
-	                }
-	            }
-	            this.contextProps = [
-	                `${listName}: ${listName}`,
-	                `${this.context}: ${listName}[#i]`,
-	                `${indexName}: #i`
-	            ];
-	            if (this.destructuredContexts) {
-	                for (let i = 0; i < this.destructuredContexts.length; i += 1) {
-	                    this.contextProps.push(`${this.destructuredContexts[i]}: ${listName}[#i][${i}]`);
-	                }
-	            }
-	            this.generator.blocks.push(this.block);
+	            this.contextProps = this.contexts.map(prop => `${prop.key.name}: list[i]${prop.tail}`);
+	            // TODO only add these if necessary
+	            this.contextProps.push(`${this.each_block_value}: list`, `${indexName}: i`);
+	            this.compiler.target.blocks.push(this.block);
 	            this.initChildren(this.block, stripWhitespace, nextSibling);
 	            block.addDependencies(this.block.dependencies);
 	            this.block.hasUpdateMethod = this.block.dependencies.size > 0;
 	            if (this.else) {
 	                this.else.block = block.child({
-	                    comment: createDebuggingComment(this.else, this.generator),
-	                    name: this.generator.getUniqueName(`${this.block.name}_else`),
+	                    comment: createDebuggingComment(this.else, this.compiler),
+	                    name: this.compiler.getUniqueName(`${this.block.name}_else`),
 	                });
-	                this.generator.blocks.push(this.else.block);
+	                this.compiler.target.blocks.push(this.else.block);
 	                this.else.initChildren(this.else.block, stripWhitespace, nextSibling);
 	                this.else.block.hasUpdateMethod = this.else.block.dependencies.size > 0;
 	            }
@@ -19939,10 +20244,9 @@
 	        build(block, parentNode, parentNodes) {
 	            if (this.children.length === 0)
 	                return;
-	            const { generator } = this;
+	            const { compiler } = this;
 	            const each = this.var;
 	            const create_each_block = this.block.name;
-	            const each_block_value = this.block.listNames.get(this.context);
 	            const iterations = this.iterations;
 	            const needsAnchor = this.next ? !this.next.isDomNode() : !parentNode || !this.parent.isDomNode();
 	            const anchor = needsAnchor
@@ -19951,23 +20255,28 @@
 	            // hack the sourcemap, so that if data is missing the bug
 	            // is easy to find
 	            let c = this.start + 2;
-	            while (generator.source[c] !== 'e')
+	            while (compiler.source[c] !== 'e')
 	                c += 1;
-	            generator.code.overwrite(c, c + 4, 'length');
+	            compiler.code.overwrite(c, c + 4, 'length');
 	            const length = `[✂${c}-${c + 4}✂]`;
 	            const mountOrIntro = this.block.hasIntroMethod ? 'i' : 'm';
 	            const vars = {
 	                each,
 	                create_each_block,
-	                each_block_value,
 	                length,
 	                iterations,
 	                anchor,
 	                mountOrIntro,
 	            };
-	            block.contextualise(this.expression);
-	            const { snippet } = this.metadata;
-	            block.builders.init.addLine(`var ${each_block_value} = ${snippet};`);
+	            const { snippet } = this.expression;
+	            block.builders.init.addLine(`var ${this.each_block_value} = ${snippet};`);
+	            this.compiler.target.blocks.push(deindent `
+			function ${this.get_each_context}(ctx, list, i) {
+				return @assign(@assign({}, ctx), {
+					${this.contextProps.join(',\n')}
+				});
+			}
+		`);
 	            if (this.key) {
 	                this.buildKeyed(block, parentNode, parentNodes, snippet, vars);
 	            }
@@ -19978,12 +20287,12 @@
 	                block.addElement(anchor, `@createComment()`, parentNodes && `@createComment()`, parentNode);
 	            }
 	            if (this.else) {
-	                const each_block_else = generator.getUniqueName(`${each}_else`);
+	                const each_block_else = compiler.getUniqueName(`${each}_else`);
 	                block.builders.init.addLine(`var ${each_block_else} = null;`);
 	                // TODO neaten this up... will end up with an empty line in the block
 	                block.builders.init.addBlock(deindent `
-				if (!${each_block_value}.${length}) {
-					${each_block_else} = ${this.else.block.name}(#component, state);
+				if (!${this.each_block_value}.${length}) {
+					${each_block_else} = ${this.else.block.name}(#component, ctx);
 					${each_block_else}.c();
 				}
 			`);
@@ -19995,10 +20304,10 @@
 	                const initialMountNode = parentNode || `${anchor}.parentNode`;
 	                if (this.else.block.hasUpdateMethod) {
 	                    block.builders.update.addBlock(deindent `
-					if (!${each_block_value}.${length} && ${each_block_else}) {
-						${each_block_else}.p(changed, state);
-					} else if (!${each_block_value}.${length}) {
-						${each_block_else} = ${this.else.block.name}(#component, state);
+					if (!${this.each_block_value}.${length} && ${each_block_else}) {
+						${each_block_else}.p(changed, ctx);
+					} else if (!${this.each_block_value}.${length}) {
+						${each_block_else} = ${this.else.block.name}(#component, ctx);
 						${each_block_else}.c();
 						${each_block_else}.${mountOrIntro}(${initialMountNode}, ${anchor});
 					} else if (${each_block_else}) {
@@ -20010,14 +20319,14 @@
 	                }
 	                else {
 	                    block.builders.update.addBlock(deindent `
-					if (${each_block_value}.${length}) {
+					if (${this.each_block_value}.${length}) {
 						if (${each_block_else}) {
 							${each_block_else}.u();
 							${each_block_else}.d();
 							${each_block_else} = null;
 						}
 					} else if (!${each_block_else}) {
-						${each_block_else} = ${this.else.block.name}(#component, state);
+						${each_block_else} = ${this.else.block.name}(#component, ctx);
 						${each_block_else}.c();
 						${each_block_else}.${mountOrIntro}(${initialMountNode}, ${anchor});
 					}
@@ -20037,8 +20346,8 @@
 	                });
 	            }
 	        }
-	        buildKeyed(block, parentNode, parentNodes, snippet, { each, create_each_block, each_block_value, length, anchor, mountOrIntro, }) {
-	            const key = block.getUniqueName('key');
+	        buildKeyed(block, parentNode, parentNodes, snippet, { each, create_each_block, length, anchor, mountOrIntro, }) {
+	            const get_key = block.getUniqueName('get_key');
 	            const blocks = block.getUniqueName(`${each}_blocks`);
 	            const lookup = block.getUniqueName(`${each}_lookup`);
 	            block.addVariable(blocks, '[]');
@@ -20051,11 +20360,12 @@
 	                this.block.addElement(this.block.first, `@createComment()`, parentNodes && `@createComment()`, null);
 	            }
 	            block.builders.init.addBlock(deindent `
-			for (var #i = 0; #i < ${each_block_value}.${length}; #i += 1) {
-				var ${key} = ${each_block_value}[#i].${this.key};
-				${blocks}[#i] = ${lookup}[${key}] = ${create_each_block}(#component, ${key}, @assign(@assign({}, state), {
-					${this.contextProps.join(',\n')}
-				}));
+			const ${get_key} = ctx => ${this.key.snippet};
+
+			for (var #i = 0; #i < ${this.each_block_value}.${length}; #i += 1) {
+				let child_ctx = ${this.get_each_context}(ctx, ${this.each_block_value}, #i);
+				let key = ${get_key}(child_ctx);
+				${blocks}[#i] = ${lookup}[key] = ${create_each_block}(#component, key, child_ctx);
 			}
 		`);
 	            const initialMountNode = parentNode || '#target';
@@ -20074,13 +20384,9 @@
 		`);
 	            const dynamic = this.block.hasUpdateMethod;
 	            block.builders.update.addBlock(deindent `
-			var ${each_block_value} = ${snippet};
+			var ${this.each_block_value} = ${snippet};
 
-			${blocks} = @updateKeyedEach(${blocks}, #component, changed, "${this.key}", ${dynamic ? '1' : '0'}, ${each_block_value}, ${lookup}, ${updateMountNode}, ${String(this.block.hasOutroMethod)}, ${create_each_block}, "${mountOrIntro}", ${anchor}, function(#i) {
-				return @assign(@assign({}, state), {
-					${this.contextProps.join(',\n')}
-				});
-			});
+			${blocks} = @updateKeyedEach(${blocks}, #component, changed, ${get_key}, ${dynamic ? '1' : '0'}, ctx, ${this.each_block_value}, ${lookup}, ${updateMountNode}, ${String(this.block.hasOutroMethod)}, ${create_each_block}, "${mountOrIntro}", ${anchor}, ${this.get_each_context});
 		`);
 	            if (!parentNode) {
 	                block.builders.unmount.addBlock(deindent `
@@ -20091,14 +20397,12 @@
 			for (#i = 0; #i < ${blocks}.length; #i += 1) ${blocks}[#i].d();
 		`);
 	        }
-	        buildUnkeyed(block, parentNode, parentNodes, snippet, { create_each_block, each_block_value, length, iterations, anchor, mountOrIntro, }) {
+	        buildUnkeyed(block, parentNode, parentNodes, snippet, { create_each_block, length, iterations, anchor, mountOrIntro, }) {
 	            block.builders.init.addBlock(deindent `
 			var ${iterations} = [];
 
-			for (var #i = 0; #i < ${each_block_value}.${length}; #i += 1) {
-				${iterations}[#i] = ${create_each_block}(#component, @assign(@assign({}, state), {
-					${this.contextProps.join(',\n')}
-				}));
+			for (var #i = 0; #i < ${this.each_block_value}.${length}; #i += 1) {
+				${iterations}[#i] = ${create_each_block}(#component, ${this.get_each_context}(ctx, ${this.each_block_value}, #i));
 			}
 		`);
 	            const initialMountNode = parentNode || '#target';
@@ -20122,7 +20426,7 @@
 			}
 		`);
 	            const allDependencies = new Set(this.block.dependencies);
-	            const { dependencies } = this.metadata;
+	            const { dependencies } = this.expression;
 	            dependencies.forEach((dependency) => {
 	                allDependencies.add(dependency);
 	            });
@@ -20135,24 +20439,24 @@
 	                    ? this.block.hasIntroMethod
 	                        ? deindent `
 						if (${iterations}[#i]) {
-							${iterations}[#i].p(changed, ${this.each_context});
+							${iterations}[#i].p(changed, child_ctx);
 						} else {
-							${iterations}[#i] = ${create_each_block}(#component, ${this.each_context});
+							${iterations}[#i] = ${create_each_block}(#component, child_ctx);
 							${iterations}[#i].c();
 						}
 						${iterations}[#i].i(${updateMountNode}, ${anchor});
 					`
 	                        : deindent `
 						if (${iterations}[#i]) {
-							${iterations}[#i].p(changed, ${this.each_context});
+							${iterations}[#i].p(changed, child_ctx);
 						} else {
-							${iterations}[#i] = ${create_each_block}(#component, ${this.each_context});
+							${iterations}[#i] = ${create_each_block}(#component, child_ctx);
 							${iterations}[#i].c();
 							${iterations}[#i].m(${updateMountNode}, ${anchor});
 						}
 					`
 	                    : deindent `
-					${iterations}[#i] = ${create_each_block}(#component, ${this.each_context});
+					${iterations}[#i] = ${create_each_block}(#component, child_ctx);
 					${iterations}[#i].c();
 					${iterations}[#i].${mountOrIntro}(${updateMountNode}, ${anchor});
 				`;
@@ -20177,16 +20481,14 @@
 						${iterations}[#i].u();
 						${iterations}[#i].d();
 					}
-					${iterations}.length = ${each_block_value}.${length};
+					${iterations}.length = ${this.each_block_value}.${length};
 				`;
 	                block.builders.update.addBlock(deindent `
-				var ${each_block_value} = ${snippet};
-
 				if (${condition}) {
-					for (var #i = ${start}; #i < ${each_block_value}.${length}; #i += 1) {
-						var ${this.each_context} = @assign(@assign({}, state), {
-							${this.contextProps.join(',\n')}
-						});
+					${this.each_block_value} = ${snippet};
+
+					for (var #i = ${start}; #i < ${this.each_block_value}.${length}; #i += 1) {
+						const child_ctx = ${this.get_each_context}(ctx, ${this.each_block_value}, #i);
 
 						${forLoopBody}
 					}
@@ -20206,106 +20508,257 @@
 	            // TODO consider keyed blocks
 	            return `for (var #i = 0; #i < ${this.iterations}.length; #i += 1) ${this.iterations}[#i].m(${name}._slotted.default, null);`;
 	        }
+	        ssr() {
+	            const { compiler } = this;
+	            const { snippet } = this.expression;
+	            const props = this.contexts.map(prop => `${prop.key.name}: item${prop.tail}`);
+	            const getContext = this.index
+	                ? `(item, i) => Object.assign({}, ctx, { ${props.join(', ')}, ${this.index}: i })`
+	                : `item => Object.assign({}, ctx, { ${props.join(', ')} })`;
+	            const open = `\${ ${this.else ? `${snippet}.length ? ` : ''}@each(${snippet}, ${getContext}, ctx => \``;
+	            compiler.target.append(open);
+	            this.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            const close = `\`)`;
+	            compiler.target.append(close);
+	            if (this.else) {
+	                compiler.target.append(` : \``);
+	                this.else.children.forEach((child) => {
+	                    child.ssr();
+	                });
+	                compiler.target.append(`\``);
+	            }
+	            compiler.target.append('}');
+	        }
 	    }
 
+	    class Transition extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.name = info.name;
+	            this.expression = info.expression
+	                ? new Expression(compiler, this, scope, info.expression)
+	                : null;
+	        }
+	    }
+
+	    class Action extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.name = info.name;
+	            this.expression = info.expression
+	                ? new Expression(compiler, this, scope, info.expression)
+	                : null;
+	        }
+	    }
+
+	    // Whitespace inside one of these elements will not result in
+	    // a whitespace node being created in any circumstances. (This
+	    // list is almost certainly very incomplete)
+	    const elementsWithoutText = new Set([
+	        'audio',
+	        'datalist',
+	        'dl',
+	        'ol',
+	        'optgroup',
+	        'select',
+	        'ul',
+	        'video',
+	    ]);
+	    function shouldSkip$1(node) {
+	        if (/\S/.test(node.data))
+	            return false;
+	        const parentElement = node.findNearest(/(?:Element|Component|Head)/);
+	        if (!parentElement)
+	            return false;
+	        if (parentElement.type === 'Head')
+	            return true;
+	        if (parentElement.type === 'Component')
+	            return parentElement.children.length === 1 && node === parentElement.children[0];
+	        return parentElement.namespace || elementsWithoutText.has(parentElement.name);
+	    }
+	    class Text extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.data = info.data;
+	        }
+	        init(block) {
+	            const parentElement = this.findNearest(/(?:Element|Component)/);
+	            if (shouldSkip$1(this)) {
+	                this.shouldSkip = true;
+	                return;
+	            }
+	            this.var = block.getUniqueName(`text`);
+	        }
+	        build(block, parentNode, parentNodes) {
+	            if (this.shouldSkip)
+	                return;
+	            block.addElement(this.var, `@createText(${stringify(this.data)})`, parentNodes && `@claimText(${parentNodes}, ${stringify(this.data)})`, parentNode);
+	        }
+	        remount(name) {
+	            return `@appendNode(${this.var}, ${name}._slotted.default);`;
+	        }
+	        ssr() {
+	            let text = this.data;
+	            if (!this.parent ||
+	                this.parent.type !== 'Element' ||
+	                (this.parent.name !== 'script' && this.parent.name !== 'style')) {
+	                // unless this Text node is inside a <script> or <style> element, escape &,<,>
+	                text = escapeHTML(text);
+	            }
+	            this.compiler.target.append(escape(escapeTemplate(text)));
+	        }
+	    }
+
+	    // source: https://gist.github.com/ArjanSchouten/0b8574a6ad7f5065a5e7
+	    const booleanAttributes = new Set('async autocomplete autofocus autoplay border challenge checked compact contenteditable controls default defer disabled formnovalidate frameborder hidden indeterminate ismap loop multiple muted nohref noresize noshade novalidate nowrap open readonly required reversed scoped scrolling seamless selected sortable spellcheck translate'.split(' '));
 	    class Element extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.name = info.name;
+	            this.scope = scope;
+	            const parentElement = parent.findNearest(/^Element/);
+	            this.namespace = this.name === 'svg' ?
+	                svg :
+	                parentElement ? parentElement.namespace : this.compiler.namespace;
+	            this.attributes = [];
+	            this.actions = [];
+	            this.bindings = [];
+	            this.handlers = [];
+	            this.intro = null;
+	            this.outro = null;
+	            if (this.name === 'textarea') {
+	                // this is an egregious hack, but it's the easiest way to get <textarea>
+	                // children treated the same way as a value attribute
+	                if (info.children.length > 0) {
+	                    info.attributes.push({
+	                        type: 'Attribute',
+	                        name: 'value',
+	                        value: info.children
+	                    });
+	                    info.children = [];
+	                }
+	            }
+	            if (this.name === 'option') {
+	                // Special case — treat these the same way:
+	                //   <option>{foo}</option>
+	                //   <option value={foo}>{foo}</option>
+	                const valueAttribute = info.attributes.find((attribute) => attribute.name === 'value');
+	                if (!valueAttribute) {
+	                    info.attributes.push({
+	                        type: 'Attribute',
+	                        name: 'value',
+	                        value: info.children,
+	                        synthetic: true
+	                    });
+	                }
+	            }
+	            info.attributes.forEach(node => {
+	                switch (node.type) {
+	                    case 'Action':
+	                        this.actions.push(new Action(compiler, this, scope, node));
+	                        break;
+	                    case 'Attribute':
+	                    case 'Spread':
+	                        // special case
+	                        if (node.name === 'xmlns')
+	                            this.namespace = node.value[0].data;
+	                        this.attributes.push(new Attribute(compiler, this, scope, node));
+	                        break;
+	                    case 'Binding':
+	                        this.bindings.push(new Binding(compiler, this, scope, node));
+	                        break;
+	                    case 'EventHandler':
+	                        this.handlers.push(new EventHandler(compiler, this, scope, node));
+	                        break;
+	                    case 'Transition':
+	                        const transition = new Transition(compiler, this, scope, node);
+	                        if (node.intro)
+	                            this.intro = transition;
+	                        if (node.outro)
+	                            this.outro = transition;
+	                        break;
+	                    case 'Ref':
+	                        // TODO catch this in validation
+	                        if (this.ref)
+	                            throw new Error(`Duplicate refs`);
+	                        compiler.usesRefs = true;
+	                        this.ref = node.name;
+	                        break;
+	                    default:
+	                        throw new Error(`Not implemented: ${node.type}`);
+	                }
+	            });
+	            // TODO break out attributes and directives here
+	            this.children = mapChildren(compiler, this, scope, info.children);
+	            compiler.stylesheet.apply(this);
+	        }
 	        init(block, stripWhitespace, nextSibling) {
 	            if (this.name === 'slot' || this.name === 'option') {
 	                this.cannotUseInnerHTML();
 	            }
-	            const parentElement = this.parent && this.parent.findNearest(/^Element/);
-	            this.namespace = this.name === 'svg' ?
-	                svg :
-	                parentElement ? parentElement.namespace : this.generator.namespace;
-	            this.attributes.forEach(attribute => {
-	                if (attribute.type === 'Attribute' && attribute.value !== true) {
-	                    // special case — xmlns
-	                    if (attribute.name === 'xmlns') {
-	                        // TODO this attribute must be static – enforce at compile time
-	                        this.namespace = attribute.value[0].data;
-	                    }
-	                    attribute.value.forEach((chunk) => {
-	                        if (chunk.type !== 'Text') {
-	                            if (this.parent)
-	                                this.parent.cannotUseInnerHTML();
-	                            const dependencies = chunk.metadata.dependencies;
-	                            block.addDependencies(dependencies);
-	                            // special case — <option value='{{foo}}'> — see below
-	                            if (this.name === 'option' &&
-	                                attribute.name === 'value') {
-	                                let select = this.parent;
-	                                while (select && (select.type !== 'Element' || select.name !== 'select'))
-	                                    select = select.parent;
-	                                if (select && select.selectBindingDependencies) {
-	                                    select.selectBindingDependencies.forEach(prop => {
-	                                        dependencies.forEach((dependency) => {
-	                                            this.generator.indirectDependencies.get(prop).add(dependency);
-	                                        });
-	                                    });
-	                                }
-	                            }
+	            this.attributes.forEach(attr => {
+	                if (attr.dependencies.size) {
+	                    this.parent.cannotUseInnerHTML();
+	                    block.addDependencies(attr.dependencies);
+	                    // special case — <option value={foo}> — see below
+	                    if (this.name === 'option' && attr.name === 'value') {
+	                        let select = this.parent;
+	                        while (select && (select.type !== 'Element' || select.name !== 'select'))
+	                            select = select.parent;
+	                        if (select && select.selectBindingDependencies) {
+	                            select.selectBindingDependencies.forEach(prop => {
+	                                attr.dependencies.forEach((dependency) => {
+	                                    this.compiler.indirectDependencies.get(prop).add(dependency);
+	                                });
+	                            });
 	                        }
-	                    });
-	                }
-	                else {
-	                    if (this.parent)
-	                        this.parent.cannotUseInnerHTML();
-	                    if (attribute.type === 'EventHandler' && attribute.expression) {
-	                        attribute.expression.arguments.forEach((arg) => {
-	                            block.addDependencies(arg.metadata.dependencies);
-	                        });
-	                    }
-	                    else if (attribute.type === 'Binding') {
-	                        block.addDependencies(attribute.metadata.dependencies);
-	                    }
-	                    else if (attribute.type === 'Transition') {
-	                        if (attribute.intro)
-	                            this.generator.hasIntroTransitions = block.hasIntroMethod = true;
-	                        if (attribute.outro) {
-	                            this.generator.hasOutroTransitions = block.hasOutroMethod = true;
-	                            block.outros += 1;
-	                        }
-	                    }
-	                    else if (attribute.type === 'Action' && attribute.expression) {
-	                        block.addDependencies(attribute.metadata.dependencies);
-	                    }
-	                    else if (attribute.type === 'Spread') {
-	                        block.addDependencies(attribute.metadata.dependencies);
 	                    }
 	                }
 	            });
-	            const valueAttribute = this.attributes.find((attribute) => attribute.name === 'value');
-	            if (this.name === 'textarea') {
-	                // this is an egregious hack, but it's the easiest way to get <textarea>
-	                // children treated the same way as a value attribute
-	                if (this.children.length > 0) {
-	                    this.attributes.push(new Attribute({
-	                        generator: this.generator,
-	                        name: 'value',
-	                        value: this.children,
-	                        parent: this
-	                    }));
-	                    this.children = [];
+	            this.actions.forEach(action => {
+	                this.parent.cannotUseInnerHTML();
+	                if (action.expression) {
+	                    block.addDependencies(action.expression.dependencies);
 	                }
+	            });
+	            this.bindings.forEach(binding => {
+	                this.parent.cannotUseInnerHTML();
+	                block.addDependencies(binding.value.dependencies);
+	            });
+	            this.handlers.forEach(handler => {
+	                this.parent.cannotUseInnerHTML();
+	                block.addDependencies(handler.dependencies);
+	            });
+	            if (this.intro) {
+	                this.parent.cannotUseInnerHTML();
+	                this.compiler.target.hasIntroTransitions = block.hasIntroMethod = true;
 	            }
+	            if (this.outro) {
+	                this.parent.cannotUseInnerHTML();
+	                this.compiler.target.hasOutroTransitions = block.hasOutroMethod = true;
+	                block.outros += 1;
+	            }
+	            const valueAttribute = this.attributes.find((attribute) => attribute.name === 'value');
 	            // special case — in a case like this...
 	            //
 	            //   <select bind:value='foo'>
-	            //     <option value='{{bar}}'>bar</option>
-	            //     <option value='{{baz}}'>baz</option>
+	            //     <option value='{bar}'>bar</option>
+	            //     <option value='{baz}'>baz</option>
 	            //   </option>
 	            //
 	            // ...we need to know that `foo` depends on `bar` and `baz`,
 	            // so that if `foo.qux` changes, we know that we need to
 	            // mark `bar` and `baz` as dirty too
 	            if (this.name === 'select') {
-	                const binding = this.attributes.find(node => node.type === 'Binding' && node.name === 'value');
+	                const binding = this.bindings.find(node => node.name === 'value');
 	                if (binding) {
 	                    // TODO does this also apply to e.g. `<input type='checkbox' bind:group='foo'>`?
-	                    const dependencies = binding.metadata.dependencies;
+	                    const dependencies = binding.value.dependencies;
 	                    this.selectBindingDependencies = dependencies;
 	                    dependencies.forEach((prop) => {
-	                        this.generator.indirectDependencies.set(prop, new Set());
+	                        this.compiler.indirectDependencies.set(prop, new Set());
 	                    });
 	                }
 	                else {
@@ -20320,9 +20773,6 @@
 	                const component = this.findNearest(/^Component/);
 	                component._slots.add(slot);
 	            }
-	            if (this.spread) {
-	                block.addDependencies(this.spread.metadata.dependencies);
-	            }
 	            this.var = block.getUniqueName(this.name.replace(/[^a-zA-Z0-9_$]/g, '_'));
 	            if (this.children.length) {
 	                if (this.name === 'pre' || this.name === 'textarea')
@@ -20331,10 +20781,10 @@
 	            }
 	        }
 	        build(block, parentNode, parentNodes) {
-	            const { generator } = this;
+	            const { compiler } = this;
 	            if (this.name === 'slot') {
 	                const slotName = this.getStaticAttributeValue('name') || 'default';
-	                this.generator.slots.add(slotName);
+	                this.compiler.slots.add(slotName);
 	            }
 	            if (this.name === 'noscript')
 	                return;
@@ -20343,18 +20793,17 @@
 	                parentNodes: parentNodes && block.getUniqueName(`${this.var}_nodes`) // if we're in unclaimable territory, i.e. <head>, parentNodes is null
 	            };
 	            const name = this.var;
-	            const allUsedContexts = new Set();
 	            const slot = this.attributes.find((attribute) => attribute.name === 'slot');
 	            const initialMountNode = this.slotted ?
-	                `${this.findNearest(/^Component/).var}._slotted.${slot.value[0].data}` : // TODO this looks bonkers
+	                `${this.findNearest(/^Component/).var}._slotted.${slot.chunks[0].data}` : // TODO this looks bonkers
 	                parentNode;
 	            block.addVariable(name);
-	            const renderStatement = getRenderStatement(this.generator, this.namespace, this.name);
+	            const renderStatement = getRenderStatement(this.namespace, this.name);
 	            block.builders.create.addLine(`${name} = ${renderStatement};`);
-	            if (this.generator.hydratable) {
+	            if (this.compiler.options.hydratable) {
 	                if (parentNodes) {
 	                    block.builders.claim.addBlock(deindent `
-					${name} = ${getClaimStatement(generator, this.namespace, parentNodes, this)};
+					${name} = ${getClaimStatement(compiler, this.namespace, parentNodes, this)};
 					var ${childState.parentNodes} = @children(${name});
 				`);
 	                }
@@ -20392,39 +20841,41 @@
 	                    child.build(block, childState.parentNode, childState.parentNodes);
 	                });
 	            }
-	            this.addBindings(block, allUsedContexts);
-	            const eventHandlerUsesComponent = this.addEventHandlers(block, allUsedContexts);
-	            this.addRefs(block);
+	            let hasHoistedEventHandlerOrBinding = (
+	            //(this.hasAncestor('EachBlock') && this.bindings.length > 0) ||
+	            this.handlers.some(handler => handler.shouldHoist));
+	            const eventHandlerOrBindingUsesComponent = (this.bindings.length > 0 ||
+	                this.handlers.some(handler => handler.usesComponent));
+	            const eventHandlerOrBindingUsesContext = (this.bindings.some(binding => binding.usesContext) ||
+	                this.handlers.some(handler => handler.usesContext));
+	            if (hasHoistedEventHandlerOrBinding) {
+	                const initialProps = [];
+	                if (eventHandlerOrBindingUsesComponent) {
+	                    const component = block.alias('component');
+	                    initialProps.push(component === 'component' ? 'component' : `component: ${component}`);
+	                }
+	                if (eventHandlerOrBindingUsesContext) {
+	                    initialProps.push(`ctx`);
+	                    block.builders.update.addLine(`${name}._svelte.ctx = ctx;`);
+	                }
+	                if (initialProps.length) {
+	                    block.builders.hydrate.addBlock(deindent `
+					${name}._svelte = { ${initialProps.join(', ')} };
+				`);
+	                }
+	            }
+	            else {
+	                if (eventHandlerOrBindingUsesContext) {
+	                    block.maintainContext = true;
+	                }
+	            }
+	            this.addBindings(block);
+	            this.addEventHandlers(block);
+	            if (this.ref)
+	                this.addRef(block);
 	            this.addAttributes(block);
 	            this.addTransitions(block);
 	            this.addActions(block);
-	            if (allUsedContexts.size || eventHandlerUsesComponent) {
-	                const initialProps = [];
-	                const updates = [];
-	                if (eventHandlerUsesComponent) {
-	                    initialProps.push(`component: #component`);
-	                }
-	                allUsedContexts.forEach((contextName) => {
-	                    if (contextName === 'state')
-	                        return;
-	                    if (block.contextTypes.get(contextName) !== 'each')
-	                        return;
-	                    const listName = block.listNames.get(contextName);
-	                    const indexName = block.indexNames.get(contextName);
-	                    initialProps.push(`${listName}: state.${listName},\n${indexName}: state.${indexName}`);
-	                    updates.push(`${name}._svelte.${listName} = state.${listName};\n${name}._svelte.${indexName} = state.${indexName};`);
-	                });
-	                if (initialProps.length) {
-	                    block.builders.hydrate.addBlock(deindent `
-					${name}._svelte = {
-						${initialProps.join(',\n')}
-					};
-				`);
-	                }
-	                if (updates.length) {
-	                    block.builders.update.addBlock(updates.join('\n'));
-	                }
-	            }
 	            if (this.initialUpdate) {
 	                block.builders.mount.addBlock(this.initialUpdate);
 	            }
@@ -20446,21 +20897,21 @@
 	                    open += ` svelte-ref-${node._cssRefAttribute}`;
 	                }
 	                node.attributes.forEach((attr) => {
-	                    open += ` ${fixAttributeCasing(attr.name)}${stringifyAttributeValue(attr.value)}`;
+	                    open += ` ${fixAttributeCasing(attr.name)}${stringifyAttributeValue(attr.chunks)}`;
 	                });
 	                if (isVoidElementName(node.name))
 	                    return open + '>';
 	                return `${open}>${node.children.map(toHTML).join('')}</${node.name}>`;
 	            }
 	        }
-	        addBindings(block, allUsedContexts) {
-	            const bindings = this.attributes.filter((a) => a.type === 'Binding');
-	            if (bindings.length === 0)
+	        addBindings(block) {
+	            if (this.bindings.length === 0)
 	                return;
 	            if (this.name === 'select' || this.isMediaNode())
-	                this.generator.hasComplexBindings = true;
+	                this.compiler.target.hasComplexBindings = true;
 	            const needsLock = this.name !== 'input' || !/radio|checkbox|range|color/.test(this.getStaticAttributeValue('type'));
-	            const mungedBindings = bindings.map(binding => binding.munge(block, allUsedContexts));
+	            // TODO munge in constructor
+	            const mungedBindings = this.bindings.map(binding => binding.munge(block));
 	            const lock = mungedBindings.some(binding => binding.needsLock) ?
 	                block.getUniqueName(`${this.var}_updating`) :
 	                null;
@@ -20512,8 +20963,6 @@
 					${animation_frame && deindent `
 							cancelAnimationFrame(${animation_frame});
 							if (!${this.var}.paused) ${animation_frame} = requestAnimationFrame(${handler});`}
-					${usesContext && `var context = ${this.var}._svelte;`}
-					${usesState && `var state = #component.get();`}
 					${usesStore && `var $ = #component.store.get();`}
 					${needsLock && `${lock} = true;`}
 					${mutations.length > 0 && mutations}
@@ -20523,15 +20972,28 @@
 				}
 			`);
 	                group.events.forEach(name => {
-	                    block.builders.hydrate.addLine(`@addListener(${this.var}, "${name}", ${handler});`);
-	                    block.builders.destroy.addLine(`@removeListener(${this.var}, "${name}", ${handler});`);
+	                    if (name === 'resize') {
+	                        // special case
+	                        const resize_listener = block.getUniqueName(`${this.var}_resize_listener`);
+	                        block.addVariable(resize_listener);
+	                        block.builders.mount.addLine(`${resize_listener} = @addResizeListener(${this.var}, ${handler});`);
+	                        block.builders.unmount.addLine(`${resize_listener}.cancel();`);
+	                    }
+	                    else {
+	                        block.builders.hydrate.addLine(`@addListener(${this.var}, "${name}", ${handler});`);
+	                        block.builders.destroy.addLine(`@removeListener(${this.var}, "${name}", ${handler});`);
+	                    }
 	                });
 	                const allInitialStateIsDefined = group.bindings
-	                    .map(binding => `'${binding.object}' in state`)
+	                    .map(binding => `'${binding.object}' in ctx`)
 	                    .join(' && ');
 	                if (this.name === 'select' || group.bindings.find(binding => binding.name === 'indeterminate' || binding.isReadOnlyMediaAttribute)) {
-	                    this.generator.hasComplexBindings = true;
+	                    this.compiler.target.hasComplexBindings = true;
 	                    block.builders.hydrate.addLine(`if (!(${allInitialStateIsDefined})) #component.root._beforecreate.push(${handler});`);
+	                }
+	                if (group.events[0] === 'resize') {
+	                    this.compiler.target.hasComplexBindings = true;
+	                    block.builders.hydrate.addLine(`#component.root._beforecreate.push(${handler});`);
 	                }
 	            });
 	            this.initialUpdate = mungedBindings.map(binding => binding.initialUpdate).filter(Boolean).join('\n');
@@ -20541,7 +21003,7 @@
 	                this.addSpreadAttributes(block);
 	                return;
 	            }
-	            this.attributes.filter((a) => a.type === 'Attribute').forEach((attribute) => {
+	            this.attributes.forEach((attribute) => {
 	                attribute.render(block);
 	            });
 	        }
@@ -20553,18 +21015,17 @@
 	            this.attributes
 	                .filter(attr => attr.type === 'Attribute' || attr.type === 'Spread')
 	                .forEach(attr => {
-	                if (attr.type === 'Attribute') {
-	                    const { dynamic, value, dependencies } = mungeAttribute(attr, block);
-	                    const snippet = `{ ${quoteIfNecessary(attr.name)}: ${value} }`;
+	                const condition = attr.dependencies.size > 0
+	                    ? [...attr.dependencies].map(d => `changed.${d}`).join(' || ')
+	                    : null;
+	                if (attr.isSpread) {
+	                    const { snippet, dependencies } = attr.expression;
 	                    initialProps.push(snippet);
-	                    const condition = dependencies && dependencies.map(d => `changed.${d}`).join(' || ');
 	                    updates.push(condition ? `${condition} && ${snippet}` : snippet);
 	                }
 	                else {
-	                    block.contextualise(attr.expression); // TODO gah
-	                    const { snippet, dependencies } = attr.metadata;
+	                    const snippet = `{ ${quoteIfNecessary(attr.name)}: ${attr.getValue()} }`;
 	                    initialProps.push(snippet);
-	                    const condition = dependencies && dependencies.map(d => `changed.${d}`).join(' || ');
 	                    updates.push(condition ? `${condition} && ${snippet}` : snippet);
 	                }
 	            });
@@ -20585,71 +21046,32 @@
 			]));
 		`);
 	        }
-	        addEventHandlers(block, allUsedContexts) {
-	            const { generator } = this;
-	            let eventHandlerUsesComponent = false;
-	            this.attributes.filter((a) => a.type === 'EventHandler').forEach((attribute) => {
-	                const isCustomEvent = generator.events.has(attribute.name);
-	                const shouldHoist = !isCustomEvent && this.hasAncestor('EachBlock');
-	                const context = shouldHoist ? null : this.var;
-	                const usedContexts = [];
-	                if (attribute.expression) {
-	                    generator.addSourcemapLocations(attribute.expression);
-	                    const flattened = flattenReference(attribute.expression.callee);
-	                    if (!validCalleeObjects.has(flattened.name)) {
-	                        // allow event.stopPropagation(), this.select() etc
-	                        // TODO verify that it's a valid callee (i.e. built-in or declared method)
-	                        if (flattened.name[0] === '$' && !generator.methods.has(flattened.name)) {
-	                            generator.code.overwrite(attribute.expression.start, attribute.expression.start + 1, `${block.alias('component')}.store.`);
-	                        }
-	                        else {
-	                            generator.code.prependRight(attribute.expression.start, `${block.alias('component')}.`);
-	                        }
-	                        if (shouldHoist)
-	                            eventHandlerUsesComponent = true; // this feels a bit hacky but it works!
-	                    }
-	                    attribute.expression.arguments.forEach((arg) => {
-	                        const { contexts } = block.contextualise(arg, context, true);
-	                        contexts.forEach(context => {
-	                            if (!~usedContexts.indexOf(context))
-	                                usedContexts.push(context);
-	                            allUsedContexts.add(context);
-	                        });
-	                    });
+	        addEventHandlers(block) {
+	            const { compiler } = this;
+	            this.handlers.forEach(handler => {
+	                const isCustomEvent = compiler.events.has(handler.name);
+	                if (handler.callee) {
+	                    handler.render(this.compiler, block, handler.shouldHoist);
 	                }
-	                const ctx = context || 'this';
-	                const declarations = usedContexts
-	                    .map(name => {
-	                    if (name === 'state') {
-	                        if (shouldHoist)
-	                            eventHandlerUsesComponent = true;
-	                        return `var state = ${block.alias('component')}.get();`;
-	                    }
-	                    const contextType = block.contextTypes.get(name);
-	                    if (contextType === 'each') {
-	                        const listName = block.listNames.get(name);
-	                        const indexName = block.indexNames.get(name);
-	                        const contextName = block.contexts.get(name);
-	                        return `var ${listName} = ${ctx}._svelte.${listName}, ${indexName} = ${ctx}._svelte.${indexName}, ${contextName} = ${listName}[${indexName}];`;
-	                    }
-	                })
-	                    .filter(Boolean);
+	                const target = handler.shouldHoist ? 'this' : this.var;
 	                // get a name for the event handler that is globally unique
 	                // if hoisted, locally unique otherwise
-	                const handlerName = (shouldHoist ? generator : block).getUniqueName(`${attribute.name.replace(/[^a-zA-Z0-9_$]/g, '_')}_handler`);
+	                const handlerName = (handler.shouldHoist ? compiler : block).getUniqueName(`${handler.name.replace(/[^a-zA-Z0-9_$]/g, '_')}_handler`);
+	                const component = block.alias('component'); // can't use #component, might be hoisted
 	                // create the handler body
 	                const handlerBody = deindent `
-				${eventHandlerUsesComponent &&
-                `var ${block.alias('component')} = ${ctx}._svelte.component;`}
-				${declarations}
-				${attribute.expression ?
-                `[✂${attribute.expression.start}-${attribute.expression.end}✂];` :
-                `${block.alias('component')}.fire("${attribute.name}", event);`}
+				${handler.shouldHoist && (handler.usesComponent || handler.usesContext
+                ? `const { ${[handler.usesComponent && 'component', handler.usesContext && 'ctx'].filter(Boolean).join(', ')} } = ${target}._svelte;`
+                : null)}
+
+				${handler.snippet ?
+                handler.snippet :
+                `${component}.fire("${handler.name}", event);`}
 			`;
 	                if (isCustomEvent) {
 	                    block.addVariable(handlerName);
 	                    block.builders.hydrate.addBlock(deindent `
-					${handlerName} = %events-${attribute.name}.call(#component, ${this.var}, function(event) {
+					${handlerName} = %events-${handler.name}.call(${component}, ${this.var}, function(event) {
 						${handlerBody}
 					});
 				`);
@@ -20658,42 +21080,35 @@
 				`);
 	                }
 	                else {
-	                    const handler = deindent `
+	                    const handlerFunction = deindent `
 					function ${handlerName}(event) {
 						${handlerBody}
 					}
 				`;
-	                    if (shouldHoist) {
-	                        generator.blocks.push(handler);
+	                    if (handler.shouldHoist) {
+	                        compiler.target.blocks.push(handlerFunction);
 	                    }
 	                    else {
-	                        block.builders.init.addBlock(handler);
+	                        block.builders.init.addBlock(handlerFunction);
 	                    }
-	                    block.builders.hydrate.addLine(`@addListener(${this.var}, "${attribute.name}", ${handlerName});`);
-	                    block.builders.destroy.addLine(`@removeListener(${this.var}, "${attribute.name}", ${handlerName});`);
+	                    block.builders.hydrate.addLine(`@addListener(${this.var}, "${handler.name}", ${handlerName});`);
+	                    block.builders.destroy.addLine(`@removeListener(${this.var}, "${handler.name}", ${handlerName});`);
 	                }
 	            });
-	            return eventHandlerUsesComponent;
 	        }
-	        addRefs(block) {
-	            // TODO it should surely be an error to have more than one ref
-	            this.attributes.filter((a) => a.type === 'Ref').forEach((attribute) => {
-	                const ref = `#component.refs.${attribute.name}`;
-	                block.builders.mount.addLine(`${ref} = ${this.var};`);
-	                block.builders.destroy.addLine(`if (${ref} === ${this.var}) ${ref} = null;`);
-	                this.generator.usesRefs = true; // so component.refs object is created
-	            });
+	        addRef(block) {
+	            const ref = `#component.refs.${this.ref}`;
+	            block.builders.mount.addLine(`${ref} = ${this.var};`);
+	            block.builders.destroy.addLine(`if (${ref} === ${this.var}) ${ref} = null;`);
 	        }
 	        addTransitions(block) {
-	            const intro = this.attributes.find((a) => a.type === 'Transition' && a.intro);
-	            const outro = this.attributes.find((a) => a.type === 'Transition' && a.outro);
+	            const { intro, outro } = this;
 	            if (!intro && !outro)
 	                return;
 	            if (intro === outro) {
-	                block.contextualise(intro.expression); // TODO remove all these
 	                const name = block.getUniqueName(`${this.var}_transition`);
 	                const snippet = intro.expression
-	                    ? intro.metadata.snippet
+	                    ? intro.expression.snippet
 	                    : '{}';
 	                block.addVariable(name);
 	                const fn = `%transitions-${intro.name}`;
@@ -20717,10 +21132,9 @@
 	                const introName = intro && block.getUniqueName(`${this.var}_intro`);
 	                const outroName = outro && block.getUniqueName(`${this.var}_outro`);
 	                if (intro) {
-	                    block.contextualise(intro.expression);
 	                    block.addVariable(introName);
 	                    const snippet = intro.expression
-	                        ? intro.metadata.snippet
+	                        ? intro.expression.snippet
 	                        : '{}';
 	                    const fn = `%transitions-${intro.name}`; // TODO add built-in transitions?
 	                    if (outro) {
@@ -20739,10 +21153,9 @@
 				`);
 	                }
 	                if (outro) {
-	                    block.contextualise(outro.expression);
 	                    block.addVariable(outroName);
 	                    const snippet = outro.expression
-	                        ? outro.metadata.snippet
+	                        ? outro.expression.snippet
 	                        : '{}';
 	                    const fn = `%transitions-${outro.name}`;
 	                    // TODO hide elements that have outro'd (unless they belong to a still-outroing
@@ -20758,23 +21171,21 @@
 	            }
 	        }
 	        addActions(block) {
-	            this.attributes.filter((a) => a.type === 'Action').forEach((attribute) => {
-	                const { expression } = attribute;
+	            this.actions.forEach(action => {
+	                const { expression } = action;
 	                let snippet, dependencies;
 	                if (expression) {
-	                    this.generator.addSourcemapLocations(expression);
-	                    block.contextualise(expression);
-	                    snippet = attribute.metadata.snippet;
-	                    dependencies = attribute.metadata.dependencies;
+	                    snippet = action.expression.snippet;
+	                    dependencies = action.expression.dependencies;
 	                }
-	                const name = block.getUniqueName(`${attribute.name.replace(/[^a-zA-Z0-9_$]/g, '_')}_action`);
+	                const name = block.getUniqueName(`${action.name.replace(/[^a-zA-Z0-9_$]/g, '_')}_action`);
 	                block.addVariable(name);
-	                const fn = `%actions-${attribute.name}`;
+	                const fn = `%actions-${action.name}`;
 	                block.builders.hydrate.addLine(`${name} = ${fn}.call(#component, ${this.var}${snippet ? `, ${snippet}` : ''}) || {};`);
-	                if (dependencies && dependencies.length) {
+	                if (dependencies && dependencies.size > 0) {
 	                    let conditional = `typeof ${name}.update === 'function' && `;
-	                    const deps = dependencies.map(dependency => `changed.${dependency}`).join(' || ');
-	                    conditional += dependencies.length > 1 ? `(${deps})` : deps;
+	                    const deps = [...dependencies].map(dependency => `changed.${dependency}`).join(' || ');
+	                    conditional += dependencies.size > 1 ? `(${deps})` : deps;
 	                    block.builders.update.addConditional(conditional, `${name}.update.call(#component, ${snippet});`);
 	                }
 	                block.builders.destroy.addLine(`if (typeof ${name}.destroy === 'function') ${name}.destroy.call(#component);`);
@@ -20784,12 +21195,12 @@
 	            const attribute = this.attributes.find((attr) => attr.type === 'Attribute' && attr.name.toLowerCase() === name);
 	            if (!attribute)
 	                return null;
-	            if (attribute.value === true)
+	            if (attribute.isTrue)
 	                return true;
-	            if (attribute.value.length === 0)
+	            if (attribute.chunks.length === 0)
 	                return '';
-	            if (attribute.value.length === 1 && attribute.value[0].type === 'Text') {
-	                return attribute.value[0].data;
+	            if (attribute.chunks.length === 1 && attribute.chunks[0].type === 'Text') {
+	                return attribute.chunks[0].data;
 	            }
 	            return null;
 	        }
@@ -20805,25 +21216,106 @@
 	        }
 	        addCssClass() {
 	            const classAttribute = this.attributes.find(a => a.name === 'class');
-	            if (classAttribute && classAttribute.value !== true) {
-	                if (classAttribute.value.length === 1 && classAttribute.value[0].type === 'Text') {
-	                    classAttribute.value[0].data += ` ${this.generator.stylesheet.id}`;
+	            if (classAttribute && !classAttribute.isTrue) {
+	                if (classAttribute.chunks.length === 1 && classAttribute.chunks[0].type === 'Text') {
+	                    classAttribute.chunks[0].data += ` ${this.compiler.stylesheet.id}`;
 	                }
 	                else {
-	                    classAttribute.value.push(new Node$1({ type: 'Text', data: ` ${this.generator.stylesheet.id}` }));
+	                    classAttribute.chunks.push(new Text(this.compiler, this, this.scope, {
+	                        type: 'Text',
+	                        data: ` ${this.compiler.stylesheet.id}`
+	                    })
+	                    // new Text({ type: 'Text', data: ` ${this.compiler.stylesheet.id}` })
+	                    );
 	                }
 	            }
 	            else {
-	                this.attributes.push(new Attribute({
-	                    generator: this.generator,
+	                this.attributes.push(new Attribute(this.compiler, this, this.scope, {
+	                    type: 'Attribute',
 	                    name: 'class',
-	                    value: [new Node$1({ type: 'Text', data: `${this.generator.stylesheet.id}` })],
-	                    parent: this,
+	                    value: [{ type: 'Text', data: `${this.compiler.stylesheet.id}` }]
 	                }));
 	            }
 	        }
+	        ssr() {
+	            const { compiler } = this;
+	            let openingTag = `<${this.name}`;
+	            let textareaContents; // awkward special case
+	            const slot = this.getStaticAttributeValue('slot');
+	            if (slot && this.hasAncestor('Component')) {
+	                const slot = this.attributes.find((attribute) => attribute.name === 'slot');
+	                const slotName = slot.chunks[0].data;
+	                const appendTarget = compiler.target.appendTargets[compiler.target.appendTargets.length - 1];
+	                appendTarget.slotStack.push(slotName);
+	                appendTarget.slots[slotName] = '';
+	            }
+	            if (this.attributes.find(attr => attr.isSpread)) {
+	                // TODO dry this out
+	                const args = [];
+	                this.attributes.forEach(attribute => {
+	                    if (attribute.isSpread) {
+	                        args.push(attribute.expression.snippet);
+	                    }
+	                    else {
+	                        if (attribute.name === 'value' && this.name === 'textarea') {
+	                            textareaContents = attribute.stringifyForSsr();
+	                        }
+	                        else if (attribute.isTrue) {
+	                            args.push(`{ ${quoteIfNecessary(attribute.name)}: true }`);
+	                        }
+	                        else if (booleanAttributes.has(attribute.name) &&
+	                            attribute.chunks.length === 1 &&
+	                            attribute.chunks[0].type !== 'Text') {
+	                            // a boolean attribute with one non-Text chunk
+	                            args.push(`{ ${quoteIfNecessary(attribute.name)}: ${attribute.chunks[0].snippet} }`);
+	                        }
+	                        else {
+	                            args.push(`{ ${quoteIfNecessary(attribute.name)}: \`${attribute.stringifyForSsr()}\` }`);
+	                        }
+	                    }
+	                });
+	                openingTag += "${@spread([" + args.join(', ') + "])}";
+	            }
+	            else {
+	                this.attributes.forEach((attribute) => {
+	                    if (attribute.type !== 'Attribute')
+	                        return;
+	                    if (attribute.name === 'value' && this.name === 'textarea') {
+	                        textareaContents = attribute.stringifyForSsr();
+	                    }
+	                    else if (attribute.isTrue) {
+	                        openingTag += ` ${attribute.name}`;
+	                    }
+	                    else if (booleanAttributes.has(attribute.name) &&
+	                        attribute.chunks.length === 1 &&
+	                        attribute.chunks[0].type !== 'Text') {
+	                        // a boolean attribute with one non-Text chunk
+	                        openingTag += '${' + attribute.chunks[0].snippet + ' ? " ' + attribute.name + '" : "" }';
+	                    }
+	                    else {
+	                        openingTag += ` ${attribute.name}="${attribute.stringifyForSsr()}"`;
+	                    }
+	                });
+	            }
+	            if (this._cssRefAttribute) {
+	                openingTag += ` svelte-ref-${this._cssRefAttribute}`;
+	            }
+	            openingTag += '>';
+	            compiler.target.append(openingTag);
+	            if (this.name === 'textarea' && textareaContents !== undefined) {
+	                compiler.target.append(textareaContents);
+	            }
+	            else {
+	                this.children.forEach((child) => {
+	                    child.ssr();
+	                });
+	            }
+	            if (!isVoidElementName(this.name)) {
+	                compiler.target.append(`</${this.name}>`);
+	            }
+	        }
 	    }
-	    function getRenderStatement(generator, namespace, name) {
+	    function getRenderStatement(namespace, name) {
 	        if (namespace === 'http://www.w3.org/2000/svg') {
 	            return `@createSvgElement("${name}")`;
 	        }
@@ -20832,7 +21324,7 @@
 	        }
 	        return `@createElement("${name}")`;
 	    }
-	    function getClaimStatement(generator, namespace, nodes, node) {
+	    function getClaimStatement(compiler, namespace, nodes, node) {
 	        const attributes = node.attributes
 	            .filter((attr) => attr.type === 'Attribute')
 	            .map((attr) => `${quoteIfNecessary(attr.name)}: true`)
@@ -20860,6 +21352,10 @@
 	            eventNames: ['change'],
 	            filter: (node, name) => node.name === 'select' ||
 	                node.name === 'input' && /radio|checkbox|range/.test(node.getStaticAttributeValue('type'))
+	        },
+	        {
+	            eventNames: ['resize'],
+	            filter: (node, name) => dimensions.test(name)
 	        },
 	        // media events
 	        {
@@ -20894,296 +21390,13 @@
 	        }
 	    ];
 
-	    class ElseBlock extends Node$1 {
-	    }
-
-	    class EventHandler extends Node$1 {
-	    }
-
-	    class Block$2 {
-	        constructor(options) {
-	            this.generator = options.generator;
-	            this.name = options.name;
-	            this.expression = options.expression;
-	            this.context = options.context;
-	            this.destructuredContexts = options.destructuredContexts;
-	            this.comment = options.comment;
-	            // for keyed each blocks
-	            this.key = options.key;
-	            this.first = null;
-	            this.contexts = options.contexts;
-	            this.contextTypes = options.contextTypes;
-	            this.indexes = options.indexes;
-	            this.changeableIndexes = options.changeableIndexes;
-	            this.dependencies = new Set();
-	            this.indexNames = options.indexNames;
-	            this.listNames = options.listNames;
-	            this.builders = {
-	                init: new CodeBuilder(),
-	                create: new CodeBuilder(),
-	                claim: new CodeBuilder(),
-	                hydrate: new CodeBuilder(),
-	                mount: new CodeBuilder(),
-	                intro: new CodeBuilder(),
-	                update: new CodeBuilder(),
-	                outro: new CodeBuilder(),
-	                unmount: new CodeBuilder(),
-	                detachRaw: new CodeBuilder(),
-	                destroy: new CodeBuilder(),
-	            };
-	            this.hasIntroMethod = false; // a block could have an intro method but not intro transitions, e.g. if a sibling block has intros
-	            this.hasOutroMethod = false;
-	            this.outros = 0;
-	            this.getUniqueName = this.generator.getUniqueNameMaker([...this.contexts.values()]);
-	            this.variables = new Map();
-	            this.aliases = new Map()
-	                .set('component', this.getUniqueName('component'))
-	                .set('state', this.getUniqueName('state'));
-	            if (this.key)
-	                this.aliases.set('key', this.getUniqueName('key'));
-	            this.hasUpdateMethod = false; // determined later
-	        }
-	        addDependencies(dependencies) {
-	            dependencies.forEach(dependency => {
-	                this.dependencies.add(dependency);
-	            });
-	        }
-	        addElement(name, renderStatement, claimStatement, parentNode) {
-	            this.addVariable(name);
-	            this.builders.create.addLine(`${name} = ${renderStatement};`);
-	            this.builders.claim.addLine(`${name} = ${claimStatement || renderStatement};`);
-	            if (parentNode) {
-	                this.builders.mount.addLine(`@appendNode(${name}, ${parentNode});`);
-	                if (parentNode === 'document.head')
-	                    this.builders.unmount.addLine(`@detachNode(${name});`);
-	            }
-	            else {
-	                this.builders.mount.addLine(`@insertNode(${name}, #target, anchor);`);
-	                this.builders.unmount.addLine(`@detachNode(${name});`);
-	            }
-	        }
-	        addVariable(name, init) {
-	            if (this.variables.has(name) && this.variables.get(name) !== init) {
-	                throw new Error(`Variable '${name}' already initialised with a different value`);
-	            }
-	            this.variables.set(name, init);
-	        }
-	        alias(name) {
-	            if (!this.aliases.has(name)) {
-	                this.aliases.set(name, this.getUniqueName(name));
-	            }
-	            return this.aliases.get(name);
-	        }
-	        child(options) {
-	            return new Block$2(Object.assign({}, this, { key: null }, options, { parent: this }));
-	        }
-	        contextualise(expression, context, isEventHandler) {
-	            return this.generator.contextualise(this.contexts, this.indexes, expression, context, isEventHandler);
-	        }
-	        toString() {
-	            let introing;
-	            const hasIntros = !this.builders.intro.isEmpty();
-	            if (hasIntros) {
-	                introing = this.getUniqueName('introing');
-	                this.addVariable(introing);
-	            }
-	            let outroing;
-	            const hasOutros = !this.builders.outro.isEmpty();
-	            if (hasOutros) {
-	                outroing = this.alias('outroing');
-	                this.addVariable(outroing);
-	            }
-	            if (this.autofocus) {
-	                this.builders.mount.addLine(`${this.autofocus}.focus();`);
-	            }
-	            // TODO `this.contexts` is possibly redundant post-#1122
-	            const initializers = [];
-	            this.contexts.forEach((name, context) => {
-	                // TODO only the ones that are actually used in this block...
-	                const listName = this.listNames.get(context);
-	                const indexName = this.indexNames.get(context);
-	                initializers.push(`${name} = state.${context}`, `${listName} = state.${listName}`, `${indexName} = state.${indexName}`);
-	                this.hasUpdateMethod = true;
-	            });
-	            // minor hack – we need to ensure that any {{{triples}}} are detached first
-	            this.builders.unmount.addBlockAtStart(this.builders.detachRaw.toString());
-	            const properties = new CodeBuilder();
-	            let localKey;
-	            if (this.key) {
-	                localKey = this.getUniqueName('key');
-	                properties.addBlock(`key: ${localKey},`);
-	            }
-	            if (this.first) {
-	                properties.addBlock(`first: null,`);
-	                this.builders.hydrate.addLine(`this.first = ${this.first};`);
-	            }
-	            if (this.builders.create.isEmpty() && this.builders.hydrate.isEmpty()) {
-	                properties.addBlock(`c: @noop,`);
-	            }
-	            else {
-	                properties.addBlock(deindent `
-				c: function create() {
-					${this.builders.create}
-					${!this.builders.hydrate.isEmpty() && `this.h();`}
-				},
-			`);
-	            }
-	            if (this.generator.hydratable) {
-	                if (this.builders.claim.isEmpty() && this.builders.hydrate.isEmpty()) {
-	                    properties.addBlock(`l: @noop,`);
-	                }
-	                else {
-	                    properties.addBlock(deindent `
-					l: function claim(nodes) {
-						${this.builders.claim}
-						${!this.builders.hydrate.isEmpty() && `this.h();`}
-					},
-				`);
-	                }
-	            }
-	            if (!this.builders.hydrate.isEmpty()) {
-	                properties.addBlock(deindent `
-				h: function hydrate() {
-					${this.builders.hydrate}
-				},
-			`);
-	            }
-	            if (this.builders.mount.isEmpty()) {
-	                properties.addBlock(`m: @noop,`);
-	            }
-	            else {
-	                properties.addBlock(deindent `
-				m: function mount(#target, anchor) {
-					${this.builders.mount}
-				},
-			`);
-	            }
-	            if (this.hasUpdateMethod) {
-	                if (this.builders.update.isEmpty() && initializers.length === 0) {
-	                    properties.addBlock(`p: @noop,`);
-	                }
-	                else {
-	                    properties.addBlock(deindent `
-					p: function update(changed, state) {
-						${initializers.map(str => `${str};`)}
-						${this.builders.update}
-					},
-				`);
-	                }
-	            }
-	            if (this.hasIntroMethod) {
-	                if (hasIntros) {
-	                    properties.addBlock(deindent `
-					i: function intro(#target, anchor) {
-						if (${introing}) return;
-						${introing} = true;
-						${hasOutros && `${outroing} = false;`}
-
-						${this.builders.intro}
-
-						this.m(#target, anchor);
-					},
-				`);
-	                }
-	                else {
-	                    properties.addBlock(deindent `
-					i: function intro(#target, anchor) {
-						this.m(#target, anchor);
-					},
-				`);
-	                }
-	            }
-	            if (this.hasOutroMethod) {
-	                if (hasOutros) {
-	                    properties.addBlock(deindent `
-					o: function outro(#outrocallback) {
-						if (${outroing}) return;
-						${outroing} = true;
-						${hasIntros && `${introing} = false;`}
-
-						var #outros = ${this.outros};
-
-						${this.builders.outro}
-					},
-				`);
-	                }
-	                else {
-	                    properties.addBlock(deindent `
-					o: @run,
-				`);
-	                }
-	            }
-	            if (this.builders.unmount.isEmpty()) {
-	                properties.addBlock(`u: @noop,`);
-	            }
-	            else {
-	                properties.addBlock(deindent `
-				u: function unmount() {
-					${this.builders.unmount}
-				},
-			`);
-	            }
-	            if (this.builders.destroy.isEmpty()) {
-	                properties.addBlock(`d: @noop`);
-	            }
-	            else {
-	                properties.addBlock(deindent `
-				d: function destroy() {
-					${this.builders.destroy}
-				}
-			`);
-	            }
-	            return deindent `
-			${this.comment && `// ${escape(this.comment)}`}
-			function ${this.name}(#component${this.key ? `, ${localKey}` : ''}, state) {
-				${initializers.length > 0 &&
-            `var ${initializers.join(', ')};`}
-				${this.variables.size > 0 &&
-            `var ${Array.from(this.variables.keys())
-                .map(key => {
-                const init = this.variables.get(key);
-                return init !== undefined ? `${key} = ${init}` : key;
-            })
-                .join(', ')};`}
-
-				${!this.builders.init.isEmpty() && this.builders.init}
-
-				return {
-					${properties}
-				};
-			}
-		`.replace(/(#+)(\w*)/g, (match, sigil, name) => {
-	                return sigil === '#' ? this.alias(name) : sigil.slice(1) + name;
-	            });
-	        }
-	    }
-
-	    class Fragment extends Node$1 {
-	        init() {
-	            this.block = new Block$2({
-	                generator: this.generator,
-	                name: '@create_main_fragment',
-	                key: null,
-	                contexts: new Map(),
-	                indexes: new Map(),
-	                changeableIndexes: new Map(),
-	                indexNames: new Map(),
-	                listNames: new Map(),
-	                dependencies: new Set(),
-	            });
-	            this.generator.blocks.push(this.block);
-	            this.initChildren(this.block, true, null);
-	            this.block.hasUpdateMethod = true;
-	        }
-	        build() {
-	            this.init();
-	            this.children.forEach(child => {
-	                child.build(this.block, null, 'nodes');
-	            });
-	        }
-	    }
-
 	    class Head extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, parent, scope, info.children.filter(child => {
+	                return (child.type !== 'Text' || /\S/.test(child.data));
+	            }));
+	        }
 	        init(block, stripWhitespace, nextSibling) {
 	            this.initChildren(block, true, null);
 	        }
@@ -21192,6 +21405,13 @@
 	            this.children.forEach((child) => {
 	                child.build(block, 'document.head', null);
 	            });
+	        }
+	        ssr() {
+	            this.compiler.target.append('${(__result.head += `');
+	            this.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            this.compiler.target.append('`, "")}');
 	        }
 	    }
 
@@ -21202,8 +21422,16 @@
 	        return branch.block && !branch.condition;
 	    }
 	    class IfBlock extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.expression = new Expression(compiler, this, scope, info.expression);
+	            this.children = mapChildren(compiler, this, scope, info.children);
+	            this.else = info.else
+	                ? new ElseBlock(compiler, this, scope, info.else)
+	                : null;
+	        }
 	        init(block, stripWhitespace, nextSibling) {
-	            const { generator } = this;
+	            const { compiler } = this;
 	            this.cannotUseInnerHTML();
 	            const blocks = [];
 	            let dynamic = false;
@@ -21211,10 +21439,10 @@
 	            let hasOutros = false;
 	            function attachBlocks(node) {
 	                node.var = block.getUniqueName(`if_block`);
-	                block.addDependencies(node.metadata.dependencies);
+	                block.addDependencies(node.expression.dependencies);
 	                node.block = block.child({
-	                    comment: createDebuggingComment(node, generator),
-	                    name: generator.getUniqueName(`create_if_block`),
+	                    comment: createDebuggingComment(node, compiler),
+	                    name: compiler.getUniqueName(`create_if_block`),
 	                });
 	                blocks.push(node.block);
 	                node.initChildren(node.block, stripWhitespace, nextSibling);
@@ -21231,8 +21459,8 @@
 	                }
 	                else if (node.else) {
 	                    node.else.block = block.child({
-	                        comment: createDebuggingComment(node.else, generator),
-	                        name: generator.getUniqueName(`create_if_block`),
+	                        comment: createDebuggingComment(node.else, compiler),
+	                        name: compiler.getUniqueName(`create_if_block`),
 	                    });
 	                    blocks.push(node.else.block);
 	                    node.else.initChildren(node.else.block, stripWhitespace, nextSibling);
@@ -21248,7 +21476,7 @@
 	                block.hasIntroMethod = hasIntros;
 	                block.hasOutroMethod = hasOutros;
 	            });
-	            generator.blocks.push(...blocks);
+	            compiler.target.blocks.push(...blocks);
 	        }
 	        build(block, parentNode, parentNodes) {
 	            const name = this.var;
@@ -21282,19 +21510,19 @@
 	            }
 	        }
 	        buildCompound(block, parentNode, parentNodes, branches, dynamic, { name, anchor, hasElse, if_name }) {
-	            const select_block_type = this.generator.getUniqueName(`select_block_type`);
+	            const select_block_type = this.compiler.getUniqueName(`select_block_type`);
 	            const current_block_type = block.getUniqueName(`current_block_type`);
 	            const current_block_type_and = hasElse ? '' : `${current_block_type} && `;
 	            block.builders.init.addBlock(deindent `
-			function ${select_block_type}(state) {
+			function ${select_block_type}(ctx) {
 				${branches
             .map(({ condition, block }) => `${condition ? `if (${condition}) ` : ''}return ${block};`)
             .join('\n')}
 			}
 		`);
 	            block.builders.init.addBlock(deindent `
-			var ${current_block_type} = ${select_block_type}(state);
-			var ${name} = ${current_block_type_and}${current_block_type}(#component, state);
+			var ${current_block_type} = ${select_block_type}(ctx);
+			var ${name} = ${current_block_type_and}${current_block_type}(#component, ctx);
 		`);
 	            const mountOrIntro = branches[0].hasIntroMethod ? 'i' : 'm';
 	            const initialMountNode = parentNode || '#target';
@@ -21312,14 +21540,14 @@
 						${name}.u();
 						${name}.d();
 					}`}
-			${name} = ${current_block_type_and}${current_block_type}(#component, state);
+			${name} = ${current_block_type_and}${current_block_type}(#component, ctx);
 			${if_name}${name}.c();
 			${if_name}${name}.${mountOrIntro}(${updateMountNode}, ${anchor});
 		`;
 	            if (dynamic) {
 	                block.builders.update.addBlock(deindent `
-				if (${current_block_type} === (${current_block_type} = ${select_block_type}(state)) && ${name}) {
-					${name}.p(changed, state);
+				if (${current_block_type} === (${current_block_type} = ${select_block_type}(ctx)) && ${name}) {
+					${name}.p(changed, ctx);
 				} else {
 					${changeBlock}
 				}
@@ -21327,7 +21555,7 @@
 	            }
 	            else {
 	                block.builders.update.addBlock(deindent `
-				if (${current_block_type} !== (${current_block_type} = ${select_block_type}(state))) {
+				if (${current_block_type} !== (${current_block_type} = ${select_block_type}(ctx))) {
 					${changeBlock}
 				}
 			`);
@@ -21355,7 +21583,7 @@
 
 			var ${if_blocks} = [];
 
-			function ${select_block_type}(state) {
+			function ${select_block_type}(ctx) {
 				${branches
             .map(({ condition, block }, i) => `${condition ? `if (${condition}) ` : ''}return ${block ? i : -1};`)
             .join('\n')}
@@ -21363,14 +21591,14 @@
 		`);
 	            if (hasElse) {
 	                block.builders.init.addBlock(deindent `
-				${current_block_type_index} = ${select_block_type}(state);
-				${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, state);
+				${current_block_type_index} = ${select_block_type}(ctx);
+				${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, ctx);
 			`);
 	            }
 	            else {
 	                block.builders.init.addBlock(deindent `
-				if (~(${current_block_type_index} = ${select_block_type}(state))) {
-					${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, state);
+				if (~(${current_block_type_index} = ${select_block_type}(ctx))) {
+					${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, ctx);
 				}
 			`);
 	            }
@@ -21389,7 +21617,7 @@
 	            const createNewBlock = deindent `
 			${name} = ${if_blocks}[${current_block_type_index}];
 			if (!${name}) {
-				${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, state);
+				${name} = ${if_blocks}[${current_block_type_index}] = ${if_block_creators}[${current_block_type_index}](#component, ctx);
 				${name}.c();
 			}
 			${name}.${mountOrIntro}(${updateMountNode}, ${anchor});
@@ -21414,9 +21642,9 @@
 	            if (dynamic) {
 	                block.builders.update.addBlock(deindent `
 				var ${previous_block_index} = ${current_block_type_index};
-				${current_block_type_index} = ${select_block_type}(state);
+				${current_block_type_index} = ${select_block_type}(ctx);
 				if (${current_block_type_index} === ${previous_block_index}) {
-					${if_current_block_type_index}${if_blocks}[${current_block_type_index}].p(changed, state);
+					${if_current_block_type_index}${if_blocks}[${current_block_type_index}].p(changed, ctx);
 				} else {
 					${changeBlock}
 				}
@@ -21425,7 +21653,7 @@
 	            else {
 	                block.builders.update.addBlock(deindent `
 				var ${previous_block_index} = ${current_block_type_index};
-				${current_block_type_index} = ${select_block_type}(state);
+				${current_block_type_index} = ${select_block_type}(ctx);
 				if (${current_block_type_index} !== ${previous_block_index}) {
 					${changeBlock}
 				}
@@ -21440,7 +21668,7 @@
 	        }
 	        buildSimple(block, parentNode, parentNodes, branch, dynamic, { name, anchor, if_name }) {
 	            block.builders.init.addBlock(deindent `
-			var ${name} = (${branch.condition}) && ${branch.block}(#component, state);
+			var ${name} = (${branch.condition}) && ${branch.block}(#component, ctx);
 		`);
 	            const mountOrIntro = branch.hasIntroMethod ? 'i' : 'm';
 	            const initialMountNode = parentNode || '#target';
@@ -21451,9 +21679,9 @@
 	                ? branch.hasIntroMethod
 	                    ? deindent `
 					if (${name}) {
-						${name}.p(changed, state);
+						${name}.p(changed, ctx);
 					} else {
-						${name} = ${branch.block}(#component, state);
+						${name} = ${branch.block}(#component, ctx);
 						if (${name}) ${name}.c();
 					}
 
@@ -21461,9 +21689,9 @@
 				`
 	                    : deindent `
 					if (${name}) {
-						${name}.p(changed, state);
+						${name}.p(changed, ctx);
 					} else {
-						${name} = ${branch.block}(#component, state);
+						${name} = ${branch.block}(#component, ctx);
 						${name}.c();
 						${name}.m(${updateMountNode}, ${anchor});
 					}
@@ -21471,14 +21699,14 @@
 	                : branch.hasIntroMethod
 	                    ? deindent `
 					if (!${name}) {
-						${name} = ${branch.block}(#component, state);
+						${name} = ${branch.block}(#component, ctx);
 						${name}.c();
 					}
 					${name}.i(${updateMountNode}, ${anchor});
 				`
 	                    : deindent `
 					if (!${name}) {
-						${name} = ${branch.block}(#component, state);
+						${name} = ${branch.block}(#component, ctx);
 						${name}.c();
 						${name}.m(${updateMountNode}, ${anchor});
 					}
@@ -21509,10 +21737,9 @@
 	            block.builders.destroy.addLine(`${if_name}${name}.d();`);
 	        }
 	        getBranches(block, parentNode, parentNodes, node) {
-	            block.contextualise(node.expression); // TODO remove
 	            const branches = [
 	                {
-	                    condition: node.metadata.snippet,
+	                    condition: node.expression.snippet,
 	                    block: node.block.name,
 	                    hasUpdateMethod: node.block.hasUpdateMethod,
 	                    hasIntroMethod: node.block.hasIntroMethod,
@@ -21537,6 +21764,21 @@
 	            }
 	            return branches;
 	        }
+	        ssr() {
+	            const { compiler } = this;
+	            const { snippet } = this.expression;
+	            compiler.target.append('${ ' + snippet + ' ? `');
+	            this.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            compiler.target.append('` : `');
+	            if (this.else) {
+	                this.else.children.forEach((child) => {
+	                    child.ssr();
+	                });
+	            }
+	            compiler.target.append('` }');
+	        }
 	        visitChildren(block, node) {
 	            node.children.forEach((child) => {
 	                child.build(node.block, null, 'nodes');
@@ -21545,23 +21787,29 @@
 	    }
 
 	    class Tag extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.expression = new Expression(compiler, this, scope, info.expression);
+	            this.shouldCache = (info.expression.type !== 'Identifier' ||
+	                (this.expression.dependencies.size && scope.names.has(info.expression.name)));
+	        }
+	        init(block) {
+	            this.cannotUseInnerHTML();
+	            this.var = block.getUniqueName(this.type === 'MustacheTag' ? 'text' : 'raw');
+	            block.addDependencies(this.expression.dependencies);
+	        }
 	        renameThisMethod(block, update) {
-	            const { indexes } = block.contextualise(this.expression);
-	            const { dependencies, snippet } = this.metadata;
-	            const hasChangeableIndex = Array.from(indexes).some(index => block.changeableIndexes.get(index));
-	            const shouldCache = (this.expression.type !== 'Identifier' ||
-	                block.contexts.has(this.expression.name) ||
-	                hasChangeableIndex);
-	            const value = shouldCache && block.getUniqueName(`${this.var}_value`);
-	            const content = shouldCache ? value : snippet;
-	            if (shouldCache)
+	            const { snippet, dependencies } = this.expression;
+	            const value = this.shouldCache && block.getUniqueName(`${this.var}_value`);
+	            const content = this.shouldCache ? value : snippet;
+	            if (this.shouldCache)
 	                block.addVariable(value, snippet);
-	            if (dependencies.length || hasChangeableIndex) {
+	            if (dependencies.size) {
 	                const changedCheck = ((block.hasOutroMethod ? `#outroing || ` : '') +
-	                    dependencies.map((dependency) => `changed.${dependency}`).join(' || '));
+	                    [...dependencies].map((dependency) => `changed.${dependency}`).join(' || '));
 	                const updateCachedValue = `${value} !== (${value} = ${snippet})`;
-	                const condition = shouldCache ?
-	                    (dependencies.length ? `(${changedCheck}) && ${updateCachedValue}` : updateCachedValue) :
+	                const condition = this.shouldCache ?
+	                    (dependencies.size ? `(${changedCheck}) && ${updateCachedValue}` : updateCachedValue) :
 	                    changedCheck;
 	                block.builders.update.addConditional(condition, update(content));
 	            }
@@ -21570,11 +21818,6 @@
 	    }
 
 	    class MustacheTag extends Tag {
-	        init(block) {
-	            this.cannotUseInnerHTML();
-	            this.var = block.getUniqueName('text');
-	            block.addDependencies(this.metadata.dependencies);
-	        }
 	        build(block, parentNode, parentNodes) {
 	            const { init } = this.renameThisMethod(block, value => `${this.var}.data = ${value};`);
 	            block.addElement(this.var, `@createText(${init})`, parentNodes && `@claimText(${parentNodes}, ${init})`, parentNode);
@@ -21582,17 +21825,16 @@
 	        remount(name) {
 	            return `@appendNode(${this.var}, ${name}._slotted.default);`;
 	        }
-	    }
-
-	    class PendingBlock extends Node$1 {
+	        ssr() {
+	            this.compiler.target.append(this.parent &&
+	                this.parent.type === 'Element' &&
+	                this.parent.name === 'style'
+	                ? '${' + this.expression.snippet + '}'
+	                : '${@escape(' + this.expression.snippet + ')}');
+	        }
 	    }
 
 	    class RawMustacheTag extends Tag {
-	        init(block) {
-	            this.cannotUseInnerHTML();
-	            this.var = block.getUniqueName('raw');
-	            block.addDependencies(this.metadata.dependencies);
-	        }
 	        build(block, parentNode, parentNodes) {
 	            const name = this.var;
 	            const needsAnchorBefore = this.prev ? this.prev.type !== 'Element' : !parentNode;
@@ -21650,9 +21892,9 @@
 	        remount(name) {
 	            return `@appendNode(${this.var}, ${name}._slotted.default);`;
 	        }
-	    }
-
-	    class Ref extends Node$1 {
+	        ssr() {
+	            this.compiler.target.append('${' + this.expression.snippet + '}');
+	        }
 	    }
 
 	    class Slot extends Element {
@@ -21664,9 +21906,9 @@
 	            }
 	        }
 	        build(block, parentNode, parentNodes) {
-	            const { generator } = this;
+	            const { compiler } = this;
 	            const slotName = this.getStaticAttributeValue('name') || 'default';
-	            generator.slots.add(slotName);
+	            compiler.slots.add(slotName);
 	            const content_name = block.getUniqueName(`slot_content_${slotName}`);
 	            const prop = !isValidIdentifier(slotName) ? `["${slotName}"]` : `.${slotName}`;
 	            block.addVariable(content_name, `#component._slotted${prop}`);
@@ -21759,90 +22001,56 @@
 	            }
 	        }
 	        getStaticAttributeValue(name) {
-	            const attribute = this.attributes.find((attr) => attr.name.toLowerCase() === name);
+	            const attribute = this.attributes.find(attr => attr.name.toLowerCase() === name);
 	            if (!attribute)
 	                return null;
-	            if (attribute.value === true)
+	            if (attribute.isTrue)
 	                return true;
-	            if (attribute.value.length === 0)
+	            if (attribute.chunks.length === 0)
 	                return '';
-	            if (attribute.value.length === 1 && attribute.value[0].type === 'Text') {
-	                return attribute.value[0].data;
+	            if (attribute.chunks.length === 1 && attribute.chunks[0].type === 'Text') {
+	                return attribute.chunks[0].data;
 	            }
 	            return null;
 	        }
-	    }
-
-	    // Whitespace inside one of these elements will not result in
-	    // a whitespace node being created in any circumstances. (This
-	    // list is almost certainly very incomplete)
-	    const elementsWithoutText = new Set([
-	        'audio',
-	        'datalist',
-	        'dl',
-	        'ol',
-	        'optgroup',
-	        'select',
-	        'ul',
-	        'video',
-	    ]);
-	    function shouldSkip$1(node) {
-	        if (/\S/.test(node.data))
-	            return false;
-	        const parentElement = node.findNearest(/(?:Element|Component|Head)/);
-	        if (!parentElement)
-	            return false;
-	        if (parentElement.type === 'Head')
-	            return true;
-	        if (parentElement.type === 'Component')
-	            return parentElement.children.length === 1 && node === parentElement.children[0];
-	        return parentElement.namespace || elementsWithoutText.has(parentElement.name);
-	    }
-	    class Text extends Node$1 {
-	        init(block) {
-	            const parentElement = this.findNearest(/(?:Element|Component)/);
-	            if (shouldSkip$1(this)) {
-	                this.shouldSkip = true;
-	                return;
-	            }
-	            this.var = block.getUniqueName(`text`);
+	        ssr() {
+	            const name = this.attributes.find(attribute => attribute.name === 'name');
+	            const slotName = name && name.chunks[0].data || 'default';
+	            this.compiler.target.append(`\${options && options.slotted && options.slotted.${slotName} ? options.slotted.${slotName}() : \``);
+	            this.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            this.compiler.target.append(`\`}`);
 	        }
-	        build(block, parentNode, parentNodes) {
-	            if (this.shouldSkip)
-	                return;
-	            block.addElement(this.var, `@createText(${stringify(this.data)})`, parentNodes && `@claimText(${parentNodes}, ${stringify(this.data)})`, parentNode);
-	        }
-	        remount(name) {
-	            return `@appendNode(${this.var}, ${name}._slotted.default);`;
-	        }
-	    }
-
-	    class ThenBlock extends Node$1 {
 	    }
 
 	    class Title extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.children = mapChildren(compiler, parent, scope, info.children);
+	            this.shouldCache = info.children.length === 1
+	                ? (info.children[0].type !== 'Identifier' ||
+	                    scope.names.has(info.children[0].name))
+	                : true;
+	        }
 	        build(block, parentNode, parentNodes) {
 	            const isDynamic = !!this.children.find(node => node.type !== 'Text');
 	            if (isDynamic) {
 	                let value;
 	                const allDependencies = new Set();
-	                let shouldCache;
 	                // TODO some of this code is repeated in Tag.ts — would be good to
 	                // DRY it out if that's possible without introducing crazy indirection
 	                if (this.children.length === 1) {
 	                    // single {{tag}} — may be a non-string
 	                    const { expression } = this.children[0];
-	                    const { indexes } = block.contextualise(expression);
-	                    const { dependencies, snippet } = this.children[0].metadata;
+	                    const { dependencies, snippet } = this.children[0].expression;
 	                    value = snippet;
 	                    dependencies.forEach(d => {
 	                        allDependencies.add(d);
 	                    });
-	                    shouldCache = (expression.type !== 'Identifier' ||
-	                        block.contexts.has(expression.name));
 	                }
 	                else {
-	                    // '{{foo}} {{bar}}' — treat as string concatenation
+	                    // '{foo} {bar}' — treat as string concatenation
 	                    value =
 	                        (this.children[0].type === 'Text' ? '' : `"" + `) +
 	                            this.children
@@ -21851,30 +22059,28 @@
 	                                    return stringify(chunk.data);
 	                                }
 	                                else {
-	                                    const { indexes } = block.contextualise(chunk.expression);
-	                                    const { dependencies, snippet } = chunk.metadata;
+	                                    const { dependencies, snippet } = chunk.expression;
 	                                    dependencies.forEach(d => {
 	                                        allDependencies.add(d);
 	                                    });
-	                                    return getExpressionPrecedence(chunk.expression) <= 13 ? `(${snippet})` : snippet;
+	                                    return chunk.expression.getPrecedence() <= 13 ? `(${snippet})` : snippet;
 	                                }
 	                            })
 	                                .join(' + ');
-	                    shouldCache = true;
 	                }
-	                const last = shouldCache && block.getUniqueName(`title_value`);
-	                if (shouldCache)
+	                const last = this.shouldCache && block.getUniqueName(`title_value`);
+	                if (this.shouldCache)
 	                    block.addVariable(last);
 	                let updater;
-	                const init = shouldCache ? `${last} = ${value}` : value;
+	                const init = this.shouldCache ? `${last} = ${value}` : value;
 	                block.builders.init.addLine(`document.title = ${init};`);
-	                updater = `document.title = ${shouldCache ? last : value};`;
+	                updater = `document.title = ${this.shouldCache ? last : value};`;
 	                if (allDependencies.size) {
 	                    const dependencies = Array.from(allDependencies);
 	                    const changedCheck = ((block.hasOutroMethod ? `#outroing || ` : '') +
 	                        dependencies.map(dependency => `changed.${dependency}`).join(' || '));
 	                    const updateCachedValue = `${last} !== (${last} = ${value})`;
-	                    const condition = shouldCache ?
+	                    const condition = this.shouldCache ?
 	                        (dependencies.length ? `(${changedCheck}) && ${updateCachedValue}` : updateCachedValue) :
 	                        changedCheck;
 	                    block.builders.update.addConditional(condition, updater);
@@ -21885,9 +22091,13 @@
 	                block.builders.hydrate.addLine(`document.title = ${value};`);
 	            }
 	        }
-	    }
-
-	    class Transition extends Node$1 {
+	        ssr() {
+	            this.compiler.target.append(`<title>`);
+	            this.children.forEach((child) => {
+	                child.ssr();
+	            });
+	            this.compiler.target.append(`</title>`);
+	        }
 	    }
 
 	    const associatedEvents = {
@@ -21910,73 +22120,74 @@
 	        'online',
 	    ]);
 	    class Window extends Node$1 {
+	        constructor(compiler, parent, scope, info) {
+	            super(compiler, parent, scope, info);
+	            this.handlers = [];
+	            this.bindings = [];
+	            info.attributes.forEach(node => {
+	                if (node.type === 'EventHandler') {
+	                    this.handlers.push(new EventHandler(compiler, this, scope, node));
+	                }
+	                else if (node.type === 'Binding') {
+	                    this.bindings.push(new Binding(compiler, this, scope, node));
+	                }
+	            });
+	        }
 	        build(block, parentNode, parentNodes) {
-	            const { generator } = this;
+	            const { compiler } = this;
 	            const events = {};
 	            const bindings = {};
-	            this.attributes.forEach((attribute) => {
-	                if (attribute.type === 'EventHandler') {
-	                    // TODO verify that it's a valid callee (i.e. built-in or declared method)
-	                    generator.addSourcemapLocations(attribute.expression);
-	                    const isCustomEvent = generator.events.has(attribute.name);
-	                    let usesState = false;
-	                    attribute.expression.arguments.forEach((arg) => {
-	                        block.contextualise(arg, null, true);
-	                        const { dependencies } = arg.metadata;
-	                        if (dependencies.length)
-	                            usesState = true;
-	                    });
-	                    const flattened = flattenReference(attribute.expression.callee);
-	                    if (flattened.name !== 'event' && flattened.name !== 'this') {
-	                        // allow event.stopPropagation(), this.select() etc
-	                        generator.code.prependRight(attribute.expression.start, `${block.alias('component')}.`);
-	                    }
-	                    const handlerName = block.getUniqueName(`onwindow${attribute.name}`);
-	                    const handlerBody = deindent `
-					${usesState && `var state = #component.get();`}
-					[✂${attribute.expression.start}-${attribute.expression.end}✂];
-				`;
-	                    if (isCustomEvent) {
-	                        // TODO dry this out
-	                        block.addVariable(handlerName);
-	                        block.builders.hydrate.addBlock(deindent `
-						${handlerName} = %events-${attribute.name}.call(#component, window, function(event) {
-							${handlerBody}
-						});
-					`);
-	                        block.builders.destroy.addLine(deindent `
-						${handlerName}.destroy();
-					`);
-	                    }
-	                    else {
-	                        block.builders.init.addBlock(deindent `
-						function ${handlerName}(event) {
-							${handlerBody}
-						}
-						window.addEventListener("${attribute.name}", ${handlerName});
-					`);
-	                        block.builders.destroy.addBlock(deindent `
-						window.removeEventListener("${attribute.name}", ${handlerName});
-					`);
-	                    }
+	            this.handlers.forEach(handler => {
+	                // TODO verify that it's a valid callee (i.e. built-in or declared method)
+	                compiler.addSourcemapLocations(handler.expression);
+	                const isCustomEvent = compiler.events.has(handler.name);
+	                let usesState = handler.dependencies.size > 0;
+	                handler.render(compiler, block, false); // TODO hoist?
+	                const handlerName = block.getUniqueName(`onwindow${handler.name}`);
+	                const handlerBody = deindent `
+				${usesState && `var ctx = #component.get();`}
+				${handler.snippet};
+			`;
+	                if (isCustomEvent) {
+	                    // TODO dry this out
+	                    block.addVariable(handlerName);
+	                    block.builders.hydrate.addBlock(deindent `
+					${handlerName} = %events-${handler.name}.call(#component, window, function(event) {
+						${handlerBody}
+					});
+				`);
+	                    block.builders.destroy.addLine(deindent `
+					${handlerName}.destroy();
+				`);
 	                }
-	                if (attribute.type === 'Binding') {
-	                    // in dev mode, throw if read-only values are written to
-	                    if (readonly.has(attribute.name)) {
-	                        generator.readonly.add(attribute.value.name);
-	                    }
-	                    bindings[attribute.name] = attribute.value.name;
-	                    // bind:online is a special case, we need to listen for two separate events
-	                    if (attribute.name === 'online')
-	                        return;
-	                    const associatedEvent = associatedEvents[attribute.name];
-	                    const property = properties[attribute.name] || attribute.name;
-	                    if (!events[associatedEvent])
-	                        events[associatedEvent] = [];
-	                    events[associatedEvent].push(`${attribute.value.name}: this.${property}`);
-	                    // add initial value
-	                    generator.metaBindings.push(`this._state.${attribute.value.name} = window.${property};`);
+	                else {
+	                    block.builders.init.addBlock(deindent `
+					function ${handlerName}(event) {
+						${handlerBody}
+					}
+					window.addEventListener("${handler.name}", ${handlerName});
+				`);
+	                    block.builders.destroy.addBlock(deindent `
+					window.removeEventListener("${handler.name}", ${handlerName});
+				`);
 	                }
+	            });
+	            this.bindings.forEach(binding => {
+	                // in dev mode, throw if read-only values are written to
+	                if (readonly.has(binding.name)) {
+	                    compiler.target.readonly.add(binding.value.node.name);
+	                }
+	                bindings[binding.name] = binding.value.node.name;
+	                // bind:online is a special case, we need to listen for two separate events
+	                if (binding.name === 'online')
+	                    return;
+	                const associatedEvent = associatedEvents[binding.name];
+	                const property = properties[binding.name] || binding.name;
+	                if (!events[associatedEvent])
+	                    events[associatedEvent] = [];
+	                events[associatedEvent].push(`${binding.value.node.name}: this.${property}`);
+	                // add initial value
+	                compiler.target.metaBindings.push(`this._state.${binding.value.node.name} = window.${property};`);
 	            });
 	            const lock = block.getUniqueName(`window_updating`);
 	            const clear = block.getUniqueName(`clear_window_updating`);
@@ -21995,13 +22206,13 @@
 					if (${lock}) return;
 					${lock} = true;
 				`}
-				${generator.options.dev && `component._updatingReadonlyProperty = true;`}
+				${compiler.options.dev && `component._updatingReadonlyProperty = true;`}
 
 				#component.set({
 					${props}
 				});
 
-				${generator.options.dev && `component._updatingReadonlyProperty = false;`}
+				${compiler.options.dev && `component._updatingReadonlyProperty = false;`}
 				${event === 'scroll' && `${lock} = false;`}
 			`;
 	                block.builders.init.addBlock(deindent `
@@ -22038,40 +22249,408 @@
 				window.addEventListener("offline", ${handlerName});
 			`);
 	                // add initial value
-	                generator.metaBindings.push(`this._state.${bindings.online} = navigator.onLine;`);
+	                compiler.target.metaBindings.push(`this._state.${bindings.online} = navigator.onLine;`);
 	                block.builders.destroy.addBlock(deindent `
 				window.removeEventListener("online", ${handlerName});
 				window.removeEventListener("offline", ${handlerName});
 			`);
 	            }
 	        }
+	        ssr() {
+	            // noop
+	        }
 	    }
 
-	    const nodes = {
-	        Attribute,
-	        AwaitBlock,
-	        Action,
-	        Binding,
-	        CatchBlock,
-	        Comment: Comment$2,
-	        Component,
-	        EachBlock,
-	        Element,
-	        ElseBlock,
-	        EventHandler,
-	        Fragment,
-	        Head,
-	        IfBlock,
-	        MustacheTag,
-	        PendingBlock,
-	        RawMustacheTag,
-	        Ref,
-	        Slot,
-	        Text,
-	        ThenBlock,
-	        Title,
-	        Transition,
-	        Window
+	    function getConstructor(type) {
+	        switch (type) {
+	            case 'AwaitBlock': return AwaitBlock;
+	            case 'Comment': return Comment$2;
+	            case 'Component': return Component;
+	            case 'EachBlock': return EachBlock;
+	            case 'Element': return Element;
+	            case 'Head': return Head;
+	            case 'IfBlock': return IfBlock;
+	            case 'MustacheTag': return MustacheTag;
+	            case 'RawMustacheTag': return RawMustacheTag;
+	            case 'Slot': return Slot;
+	            case 'Text': return Text;
+	            case 'Title': return Title;
+	            case 'Window': return Window;
+	            default: throw new Error(`Not implemented: ${type}`);
+	        }
+	    }
+	    function mapChildren(compiler, parent, scope, children) {
+	        let last = null;
+	        return children.map(child => {
+	            const constructor = getConstructor(child.type);
+	            const node = new constructor(compiler, parent, scope, child);
+	            if (last)
+	                last.next = node;
+	            node.prev = last;
+	            last = node;
+	            return node;
+	        });
+	    }
+
+	    class Block$2 {
+	        constructor(options) {
+	            this.compiler = options.compiler;
+	            this.name = options.name;
+	            this.comment = options.comment;
+	            // for keyed each blocks
+	            this.key = options.key;
+	            this.first = null;
+	            this.dependencies = new Set();
+	            this.bindings = options.bindings;
+	            this.builders = {
+	                init: new CodeBuilder(),
+	                create: new CodeBuilder(),
+	                claim: new CodeBuilder(),
+	                hydrate: new CodeBuilder(),
+	                mount: new CodeBuilder(),
+	                intro: new CodeBuilder(),
+	                update: new CodeBuilder(),
+	                outro: new CodeBuilder(),
+	                unmount: new CodeBuilder(),
+	                detachRaw: new CodeBuilder(),
+	                destroy: new CodeBuilder(),
+	            };
+	            this.hasIntroMethod = false; // a block could have an intro method but not intro transitions, e.g. if a sibling block has intros
+	            this.hasOutroMethod = false;
+	            this.outros = 0;
+	            this.getUniqueName = this.compiler.getUniqueNameMaker();
+	            this.variables = new Map();
+	            this.aliases = new Map()
+	                .set('component', this.getUniqueName('component'))
+	                .set('ctx', this.getUniqueName('ctx'));
+	            if (this.key)
+	                this.aliases.set('key', this.getUniqueName('key'));
+	            this.hasUpdateMethod = false; // determined later
+	        }
+	        addDependencies(dependencies) {
+	            dependencies.forEach(dependency => {
+	                this.dependencies.add(dependency);
+	            });
+	        }
+	        addElement(name, renderStatement, claimStatement, parentNode) {
+	            this.addVariable(name);
+	            this.builders.create.addLine(`${name} = ${renderStatement};`);
+	            this.builders.claim.addLine(`${name} = ${claimStatement || renderStatement};`);
+	            if (parentNode) {
+	                this.builders.mount.addLine(`@appendNode(${name}, ${parentNode});`);
+	                if (parentNode === 'document.head')
+	                    this.builders.unmount.addLine(`@detachNode(${name});`);
+	            }
+	            else {
+	                this.builders.mount.addLine(`@insertNode(${name}, #target, anchor);`);
+	                this.builders.unmount.addLine(`@detachNode(${name});`);
+	            }
+	        }
+	        addVariable(name, init) {
+	            if (this.variables.has(name) && this.variables.get(name) !== init) {
+	                throw new Error(`Variable '${name}' already initialised with a different value`);
+	            }
+	            this.variables.set(name, init);
+	        }
+	        alias(name) {
+	            if (!this.aliases.has(name)) {
+	                this.aliases.set(name, this.getUniqueName(name));
+	            }
+	            return this.aliases.get(name);
+	        }
+	        child(options) {
+	            return new Block$2(Object.assign({}, this, { key: null }, options, { parent: this }));
+	        }
+	        toString() {
+	            const { dev } = this.compiler.options;
+	            let introing;
+	            const hasIntros = !this.builders.intro.isEmpty();
+	            if (hasIntros) {
+	                introing = this.getUniqueName('introing');
+	                this.addVariable(introing);
+	            }
+	            let outroing;
+	            const hasOutros = !this.builders.outro.isEmpty();
+	            if (hasOutros) {
+	                outroing = this.alias('outroing');
+	                this.addVariable(outroing);
+	            }
+	            if (this.autofocus) {
+	                this.builders.mount.addLine(`${this.autofocus}.focus();`);
+	            }
+	            // minor hack – we need to ensure that any {{{triples}}} are detached first
+	            this.builders.unmount.addBlockAtStart(this.builders.detachRaw.toString());
+	            const properties = new CodeBuilder();
+	            let localKey;
+	            if (this.key) {
+	                localKey = this.getUniqueName('key');
+	                properties.addBlock(`key: ${localKey},`);
+	            }
+	            if (this.first) {
+	                properties.addBlock(`first: null,`);
+	                this.builders.hydrate.addLine(`this.first = ${this.first};`);
+	            }
+	            if (this.builders.create.isEmpty() && this.builders.hydrate.isEmpty()) {
+	                properties.addBlock(`c: @noop,`);
+	            }
+	            else {
+	                const hydrate = !this.builders.hydrate.isEmpty() && (this.compiler.options.hydratable
+	                    ? `this.h()`
+	                    : this.builders.hydrate);
+	                properties.addBlock(deindent `
+				${dev ? 'c: function create' : 'c'}() {
+					${this.builders.create}
+					${hydrate}
+				},
+			`);
+	            }
+	            if (this.compiler.options.hydratable) {
+	                if (this.builders.claim.isEmpty() && this.builders.hydrate.isEmpty()) {
+	                    properties.addBlock(`l: @noop,`);
+	                }
+	                else {
+	                    properties.addBlock(deindent `
+					${dev ? 'l: function claim' : 'l'}(nodes) {
+						${this.builders.claim}
+						${!this.builders.hydrate.isEmpty() && `this.h();`}
+					},
+				`);
+	                }
+	            }
+	            if (this.compiler.options.hydratable && !this.builders.hydrate.isEmpty()) {
+	                properties.addBlock(deindent `
+				${dev ? 'h: function hydrate' : 'h'}() {
+					${this.builders.hydrate}
+				},
+			`);
+	            }
+	            if (this.builders.mount.isEmpty()) {
+	                properties.addBlock(`m: @noop,`);
+	            }
+	            else {
+	                properties.addBlock(deindent `
+				${dev ? 'm: function mount' : 'm'}(#target, anchor) {
+					${this.builders.mount}
+				},
+			`);
+	            }
+	            if (this.hasUpdateMethod || this.maintainContext) {
+	                if (this.builders.update.isEmpty() && !this.maintainContext) {
+	                    properties.addBlock(`p: @noop,`);
+	                }
+	                else {
+	                    properties.addBlock(deindent `
+					${dev ? 'p: function update' : 'p'}(changed, ${this.maintainContext ? '_ctx' : 'ctx'}) {
+						${this.maintainContext && `ctx = _ctx;`}
+						${this.builders.update}
+					},
+				`);
+	                }
+	            }
+	            if (this.hasIntroMethod) {
+	                if (hasIntros) {
+	                    properties.addBlock(deindent `
+					${dev ? 'i: function intro' : 'i'}(#target, anchor) {
+						if (${introing}) return;
+						${introing} = true;
+						${hasOutros && `${outroing} = false;`}
+
+						${this.builders.intro}
+
+						this.m(#target, anchor);
+					},
+				`);
+	                }
+	                else {
+	                    properties.addBlock(deindent `
+					${dev ? 'i: function intro' : 'i'}(#target, anchor) {
+						this.m(#target, anchor);
+					},
+				`);
+	                }
+	            }
+	            if (this.hasOutroMethod) {
+	                if (hasOutros) {
+	                    properties.addBlock(deindent `
+					${dev ? 'o: function outro' : 'o'}(#outrocallback) {
+						if (${outroing}) return;
+						${outroing} = true;
+						${hasIntros && `${introing} = false;`}
+
+						var #outros = ${this.outros};
+
+						${this.builders.outro}
+					},
+				`);
+	                }
+	                else {
+	                    properties.addBlock(deindent `
+					o: @run,
+				`);
+	                }
+	            }
+	            if (this.builders.unmount.isEmpty()) {
+	                properties.addBlock(`u: @noop,`);
+	            }
+	            else {
+	                properties.addBlock(deindent `
+				${dev ? 'u: function unmount' : 'u'}() {
+					${this.builders.unmount}
+				},
+			`);
+	            }
+	            if (this.builders.destroy.isEmpty()) {
+	                properties.addBlock(`d: @noop`);
+	            }
+	            else {
+	                properties.addBlock(deindent `
+				${dev ? 'd: function destroy' : 'd'}() {
+					${this.builders.destroy}
+				}
+			`);
+	            }
+	            return deindent `
+			${this.comment && `// ${escape(this.comment)}`}
+			function ${this.name}(#component${this.key ? `, ${localKey}` : ''}, ctx) {
+				${this.variables.size > 0 &&
+            `var ${Array.from(this.variables.keys())
+                .map(key => {
+                const init = this.variables.get(key);
+                return init !== undefined ? `${key} = ${init}` : key;
+            })
+                .join(', ')};`}
+
+				${!this.builders.init.isEmpty() && this.builders.init}
+
+				return {
+					${properties}
+				};
+			}
+		`.replace(/(#+)(\w*)/g, (match, sigil, name) => {
+	                return sigil === '#' ? this.alias(name) : sigil.slice(1) + name;
+	            });
+	        }
+	    }
+
+	    class TemplateScope {
+	        constructor(parent) {
+	            this.names = new Set(parent ? parent.names : []);
+	            this.dependenciesForName = new Map(parent ? parent.dependenciesForName : []);
+	        }
+	        add(name, dependencies) {
+	            this.names.add(name);
+	            this.dependenciesForName.set(name, dependencies);
+	            return this;
+	        }
+	        child() {
+	            return new TemplateScope(this);
+	        }
+	    }
+
+	    class Fragment extends Node$1 {
+	        constructor(compiler, info) {
+	            const scope = new TemplateScope();
+	            super(compiler, null, scope, info);
+	            this.scope = scope;
+	            this.children = mapChildren(compiler, this, scope, info.children);
+	        }
+	        init() {
+	            this.block = new Block$2({
+	                compiler: this.compiler,
+	                name: '@create_main_fragment',
+	                key: null,
+	                bindings: new Map(),
+	                dependencies: new Set(),
+	            });
+	            this.compiler.target.blocks.push(this.block);
+	            this.initChildren(this.block, true, null);
+	            this.block.hasUpdateMethod = true;
+	        }
+	        build() {
+	            this.init();
+	            this.children.forEach(child => {
+	                child.build(this.block, null, 'nodes');
+	            });
+	        }
+	    }
+
+	    // this file is auto-generated, do not edit it
+	    const shared = {
+	        "appendNode": "function appendNode(node, target) {\n\ttarget.appendChild(node);\n}",
+	        "insertNode": "function insertNode(node, target, anchor) {\n\ttarget.insertBefore(node, anchor);\n}",
+	        "detachNode": "function detachNode(node) {\n\tnode.parentNode.removeChild(node);\n}",
+	        "detachBetween": "function detachBetween(before, after) {\n\twhile (before.nextSibling && before.nextSibling !== after) {\n\t\tbefore.parentNode.removeChild(before.nextSibling);\n\t}\n}",
+	        "detachBefore": "function detachBefore(after) {\n\twhile (after.previousSibling) {\n\t\tafter.parentNode.removeChild(after.previousSibling);\n\t}\n}",
+	        "detachAfter": "function detachAfter(before) {\n\twhile (before.nextSibling) {\n\t\tbefore.parentNode.removeChild(before.nextSibling);\n\t}\n}",
+	        "reinsertBetween": "function reinsertBetween(before, after, target) {\n\twhile (before.nextSibling && before.nextSibling !== after) {\n\t\ttarget.appendChild(before.parentNode.removeChild(before.nextSibling));\n\t}\n}",
+	        "reinsertChildren": "function reinsertChildren(parent, target) {\n\twhile (parent.firstChild) target.appendChild(parent.firstChild);\n}",
+	        "reinsertAfter": "function reinsertAfter(before, target) {\n\twhile (before.nextSibling) target.appendChild(before.nextSibling);\n}",
+	        "reinsertBefore": "function reinsertBefore(after, target) {\n\tvar parent = after.parentNode;\n\twhile (parent.firstChild !== after) target.appendChild(parent.firstChild);\n}",
+	        "destroyEach": "function destroyEach(iterations) {\n\tfor (var i = 0; i < iterations.length; i += 1) {\n\t\tif (iterations[i]) iterations[i].d();\n\t}\n}",
+	        "createFragment": "function createFragment() {\n\treturn document.createDocumentFragment();\n}",
+	        "createElement": "function createElement(name) {\n\treturn document.createElement(name);\n}",
+	        "createSvgElement": "function createSvgElement(name) {\n\treturn document.createElementNS('http://www.w3.org/2000/svg', name);\n}",
+	        "createText": "function createText(data) {\n\treturn document.createTextNode(data);\n}",
+	        "createComment": "function createComment() {\n\treturn document.createComment('');\n}",
+	        "addListener": "function addListener(node, event, handler) {\n\tnode.addEventListener(event, handler, false);\n}",
+	        "removeListener": "function removeListener(node, event, handler) {\n\tnode.removeEventListener(event, handler, false);\n}",
+	        "setAttribute": "function setAttribute(node, attribute, value) {\n\tnode.setAttribute(attribute, value);\n}",
+	        "setAttributes": "function setAttributes(node, attributes) {\n\tfor (var key in attributes) {\n\t\tif (key in node) {\n\t\t\tnode[key] = attributes[key];\n\t\t} else {\n\t\t\tif (attributes[key] === undefined) removeAttribute(node, key);\n\t\t\telse setAttribute(node, key, attributes[key]);\n\t\t}\n\t}\n}",
+	        "removeAttribute": "function removeAttribute(node, attribute) {\n\tnode.removeAttribute(attribute);\n}",
+	        "setXlinkAttribute": "function setXlinkAttribute(node, attribute, value) {\n\tnode.setAttributeNS('http://www.w3.org/1999/xlink', attribute, value);\n}",
+	        "getBindingGroupValue": "function getBindingGroupValue(group) {\n\tvar value = [];\n\tfor (var i = 0; i < group.length; i += 1) {\n\t\tif (group[i].checked) value.push(group[i].__value);\n\t}\n\treturn value;\n}",
+	        "toNumber": "function toNumber(value) {\n\treturn value === '' ? undefined : +value;\n}",
+	        "timeRangesToArray": "function timeRangesToArray(ranges) {\n\tvar array = [];\n\tfor (var i = 0; i < ranges.length; i += 1) {\n\t\tarray.push({ start: ranges.start(i), end: ranges.end(i) });\n\t}\n\treturn array;\n}",
+	        "children": "function children (element) {\n\treturn Array.from(element.childNodes);\n}",
+	        "claimElement": "function claimElement (nodes, name, attributes, svg) {\n\tfor (var i = 0; i < nodes.length; i += 1) {\n\t\tvar node = nodes[i];\n\t\tif (node.nodeName === name) {\n\t\t\tfor (var j = 0; j < node.attributes.length; j += 1) {\n\t\t\t\tvar attribute = node.attributes[j];\n\t\t\t\tif (!attributes[attribute.name]) node.removeAttribute(attribute.name);\n\t\t\t}\n\t\t\treturn nodes.splice(i, 1)[0]; // TODO strip unwanted attributes\n\t\t}\n\t}\n\n\treturn svg ? createSvgElement(name) : createElement(name);\n}",
+	        "claimText": "function claimText (nodes, data) {\n\tfor (var i = 0; i < nodes.length; i += 1) {\n\t\tvar node = nodes[i];\n\t\tif (node.nodeType === 3) {\n\t\t\tnode.data = data;\n\t\t\treturn nodes.splice(i, 1)[0];\n\t\t}\n\t}\n\n\treturn createText(data);\n}",
+	        "setInputType": "function setInputType(input, type) {\n\ttry {\n\t\tinput.type = type;\n\t} catch (e) {}\n}",
+	        "setStyle": "function setStyle(node, key, value) {\n\tnode.style.setProperty(key, value);\n}",
+	        "selectOption": "function selectOption(select, value) {\n\tfor (var i = 0; i < select.options.length; i += 1) {\n\t\tvar option = select.options[i];\n\n\t\tif (option.__value === value) {\n\t\t\toption.selected = true;\n\t\t\treturn;\n\t\t}\n\t}\n}",
+	        "selectOptions": "function selectOptions(select, value) {\n\tfor (var i = 0; i < select.options.length; i += 1) {\n\t\tvar option = select.options[i];\n\t\toption.selected = ~value.indexOf(option.__value);\n\t}\n}",
+	        "selectValue": "function selectValue(select) {\n\tvar selectedOption = select.querySelector(':checked') || select.options[0];\n\treturn selectedOption && selectedOption.__value;\n}",
+	        "selectMultipleValue": "function selectMultipleValue(select) {\n\treturn [].map.call(select.querySelectorAll(':checked'), function(option) {\n\t\treturn option.__value;\n\t});\n}",
+	        "addResizeListener": "function addResizeListener(element, fn) {\n\tif (getComputedStyle(element).position === 'static') {\n\t\telement.style.position = 'relative';\n\t}\n\n\tconst object = document.createElement('object');\n\tobject.setAttribute('style', 'display: block; position: absolute; top: 0; left: 0; height: 100%; width: 100%; overflow: hidden; pointer-events: none; z-index: -1;');\n\tobject.type = 'text/html';\n\n\tlet win;\n\n\tobject.onload = () => {\n\t\twin = object.contentDocument.defaultView;\n\t\twin.addEventListener('resize', fn);\n\t};\n\n\tif (/Trident/.test(navigator.userAgent)) {\n\t\telement.appendChild(object);\n\t\tobject.data = 'about:blank';\n\t} else {\n\t\tobject.data = 'about:blank';\n\t\telement.appendChild(object);\n\t}\n\n\treturn {\n\t\tcancel: () => {\n\t\t\twin.removeEventListener('resize', fn);\n\t\t\telement.removeChild(object);\n\t\t}\n\t};\n}",
+	        "blankObject": "function blankObject() {\n\treturn Object.create(null);\n}",
+	        "destroy": "function destroy(detach) {\n\tthis.destroy = noop;\n\tthis.fire('destroy');\n\tthis.set = noop;\n\n\tif (detach !== false) this._fragment.u();\n\tthis._fragment.d();\n\tthis._fragment = null;\n\tthis._state = {};\n}",
+	        "destroyDev": "function destroyDev(detach) {\n\tdestroy.call(this, detach);\n\tthis.destroy = function() {\n\t\tconsole.warn('Component was already destroyed');\n\t};\n}",
+	        "_differs": "function _differs(a, b) {\n\treturn a != a ? b == b : a !== b || ((a && typeof a === 'object') || typeof a === 'function');\n}",
+	        "_differsImmutable": "function _differsImmutable(a, b) {\n\treturn a != a ? b == b : a !== b;\n}",
+	        "fire": "function fire(eventName, data) {\n\tvar handlers =\n\t\teventName in this._handlers && this._handlers[eventName].slice();\n\tif (!handlers) return;\n\n\tfor (var i = 0; i < handlers.length; i += 1) {\n\t\tvar handler = handlers[i];\n\n\t\tif (!handler.__calling) {\n\t\t\thandler.__calling = true;\n\t\t\thandler.call(this, data);\n\t\t\thandler.__calling = false;\n\t\t}\n\t}\n}",
+	        "get": "function get() {\n\treturn this._state;\n}",
+	        "init": "function init(component, options) {\n\tcomponent._handlers = blankObject();\n\tcomponent._bind = options._bind;\n\n\tcomponent.options = options;\n\tcomponent.root = options.root || component;\n\tcomponent.store = component.root.store || options.store;\n}",
+	        "on": "function on(eventName, handler) {\n\tvar handlers = this._handlers[eventName] || (this._handlers[eventName] = []);\n\thandlers.push(handler);\n\n\treturn {\n\t\tcancel: function() {\n\t\t\tvar index = handlers.indexOf(handler);\n\t\t\tif (~index) handlers.splice(index, 1);\n\t\t}\n\t};\n}",
+	        "run": "function run(fn) {\n\tfn();\n}",
+	        "set": "function set(newState) {\n\tthis._set(assign({}, newState));\n\tif (this.root._lock) return;\n\tthis.root._lock = true;\n\tcallAll(this.root._beforecreate);\n\tcallAll(this.root._oncreate);\n\tcallAll(this.root._aftercreate);\n\tthis.root._lock = false;\n}",
+	        "_set": "function _set(newState) {\n\tvar oldState = this._state,\n\t\tchanged = {},\n\t\tdirty = false;\n\n\tfor (var key in newState) {\n\t\tif (this._differs(newState[key], oldState[key])) changed[key] = dirty = true;\n\t}\n\tif (!dirty) return;\n\n\tthis._state = assign(assign({}, oldState), newState);\n\tthis._recompute(changed, this._state);\n\tif (this._bind) this._bind(changed, this._state);\n\n\tif (this._fragment) {\n\t\tthis.fire(\"state\", { changed: changed, current: this._state, previous: oldState });\n\t\tthis._fragment.p(changed, this._state);\n\t\tthis.fire(\"update\", { changed: changed, current: this._state, previous: oldState });\n\t}\n}",
+	        "setDev": "function setDev(newState) {\n\tif (typeof newState !== 'object') {\n\t\tthrow new Error(\n\t\t\tthis._debugName + '.set was called without an object of data key-values to update.'\n\t\t);\n\t}\n\n\tthis._checkReadOnly(newState);\n\tset.call(this, newState);\n}",
+	        "callAll": "function callAll(fns) {\n\twhile (fns && fns.length) fns.shift()();\n}",
+	        "_mount": "function _mount(target, anchor) {\n\tthis._fragment[this._fragment.i ? 'i' : 'm'](target, anchor || null);\n}",
+	        "_unmount": "function _unmount() {\n\tif (this._fragment) this._fragment.u();\n}",
+	        "isPromise": "function isPromise(value) {\n\treturn value && typeof value.then === 'function';\n}",
+	        "PENDING": "{}",
+	        "SUCCESS": "{}",
+	        "FAILURE": "{}",
+	        "removeFromStore": "function removeFromStore() {\n\tthis.store._remove(this);\n}",
+	        "proto": "{\n\tdestroy,\n\tget,\n\tfire,\n\ton,\n\tset,\n\t_recompute: noop,\n\t_set,\n\t_mount,\n\t_unmount,\n\t_differs\n}",
+	        "protoDev": "{\n\tdestroy: destroyDev,\n\tget,\n\tfire,\n\ton,\n\tset: setDev,\n\t_recompute: noop,\n\t_set,\n\t_mount,\n\t_unmount,\n\t_differs\n}",
+	        "destroyBlock": "function destroyBlock(block, lookup) {\n\tblock.u();\n\tblock.d();\n\tlookup[block.key] = null;\n}",
+	        "outroAndDestroyBlock": "function outroAndDestroyBlock(block, lookup) {\n\tblock.o(function() {\n\t\tdestroyBlock(block, lookup);\n\t});\n}",
+	        "updateKeyedEach": "function updateKeyedEach(old_blocks, component, changed, get_key, dynamic, ctx, list, lookup, node, has_outro, create_each_block, intro_method, next, get_context) {\n\tvar o = old_blocks.length;\n\tvar n = list.length;\n\n\tvar i = o;\n\tvar old_indexes = {};\n\twhile (i--) old_indexes[old_blocks[i].key] = i;\n\n\tvar new_blocks = [];\n\tvar new_lookup = {};\n\tvar deltas = {};\n\n\tvar i = n;\n\twhile (i--) {\n\t\tvar child_ctx = get_context(ctx, list, i);\n\t\tvar key = get_key(child_ctx);\n\t\tvar block = lookup[key];\n\n\t\tif (!block) {\n\t\t\tblock = create_each_block(component, key, child_ctx);\n\t\t\tblock.c();\n\t\t} else if (dynamic) {\n\t\t\tblock.p(changed, child_ctx);\n\t\t}\n\n\t\tnew_blocks[i] = new_lookup[key] = block;\n\n\t\tif (key in old_indexes) deltas[key] = Math.abs(i - old_indexes[key]);\n\t}\n\n\tvar will_move = {};\n\tvar did_move = {};\n\n\tvar destroy = has_outro ? outroAndDestroyBlock : destroyBlock;\n\n\tfunction insert(block) {\n\t\tblock[intro_method](node, next);\n\t\tlookup[block.key] = block;\n\t\tnext = block.first;\n\t\tn--;\n\t}\n\n\twhile (o && n) {\n\t\tvar new_block = new_blocks[n - 1];\n\t\tvar old_block = old_blocks[o - 1];\n\t\tvar new_key = new_block.key;\n\t\tvar old_key = old_block.key;\n\n\t\tif (new_block === old_block) {\n\t\t\t// do nothing\n\t\t\tnext = new_block.first;\n\t\t\to--;\n\t\t\tn--;\n\t\t}\n\n\t\telse if (!new_lookup[old_key]) {\n\t\t\t// remove old block\n\t\t\tdestroy(old_block, lookup);\n\t\t\to--;\n\t\t}\n\n\t\telse if (!lookup[new_key] || will_move[new_key]) {\n\t\t\tinsert(new_block);\n\t\t}\n\n\t\telse if (did_move[old_key]) {\n\t\t\to--;\n\n\t\t} else if (deltas[new_key] > deltas[old_key]) {\n\t\t\tdid_move[new_key] = true;\n\t\t\tinsert(new_block);\n\n\t\t} else {\n\t\t\twill_move[old_key] = true;\n\t\t\to--;\n\t\t}\n\t}\n\n\twhile (o--) {\n\t\tvar old_block = old_blocks[o];\n\t\tif (!new_lookup[old_block.key]) destroy(old_block, lookup);\n\t}\n\n\twhile (n) insert(new_blocks[n - 1]);\n\n\treturn new_blocks;\n}",
+	        "getSpreadUpdate": "function getSpreadUpdate(levels, updates) {\n\tvar update = {};\n\n\tvar to_null_out = {};\n\tvar accounted_for = {};\n\n\tvar i = levels.length;\n\twhile (i--) {\n\t\tvar o = levels[i];\n\t\tvar n = updates[i];\n\n\t\tif (n) {\n\t\t\tfor (var key in o) {\n\t\t\t\tif (!(key in n)) to_null_out[key] = 1;\n\t\t\t}\n\n\t\t\tfor (var key in n) {\n\t\t\t\tif (!accounted_for[key]) {\n\t\t\t\t\tupdate[key] = n[key];\n\t\t\t\t\taccounted_for[key] = 1;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tlevels[i] = n;\n\t\t} else {\n\t\t\tfor (var key in o) {\n\t\t\t\taccounted_for[key] = 1;\n\t\t\t}\n\t\t}\n\t}\n\n\tfor (var key in to_null_out) {\n\t\tif (!(key in update)) update[key] = undefined;\n\t}\n\n\treturn update;\n}",
+	        "spread": "function spread(args) {\n\tconst attributes = Object.assign({}, ...args);\n\tlet str = '';\n\n\tObject.keys(attributes).forEach(name => {\n\t\tconst value = attributes[name];\n\t\tif (value === undefined) return;\n\t\tif (value === true) str += \" \" + name;\n\t\tstr += \" \" + name + \"=\" + JSON.stringify(value);\n\t});\n\n\treturn str;\n}",
+	        "escaped": "{\n\t'\"': '&quot;',\n\t\"'\": '&#39;',\n\t'&': '&amp;',\n\t'<': '&lt;',\n\t'>': '&gt;'\n}",
+	        "escape": "function escape(html) {\n\treturn String(html).replace(/[\"'&<>]/g, match => escaped[match]);\n}",
+	        "each": "function each(items, assign, fn) {\n\tlet str = '';\n\tfor (let i = 0; i < items.length; i += 1) {\n\t\tstr += fn(assign(items[i], i));\n\t}\n\treturn str;\n}",
+	        "missingComponent": "{\n\t_render: () => ''\n}",
+	        "linear": "function linear(t) {\n\treturn t;\n}",
+	        "generateRule": "function generateRule(\n\ta,\n\tb,\n\tdelta,\n\tduration,\n\tease,\n\tfn\n) {\n\tvar keyframes = '{\\n';\n\n\tfor (var p = 0; p <= 1; p += 16.666 / duration) {\n\t\tvar t = a + delta * ease(p);\n\t\tkeyframes += p * 100 + '%{' + fn(t) + '}\\n';\n\t}\n\n\treturn keyframes + '100% {' + fn(b) + '}\\n}';\n}",
+	        "hash": "function hash(str) {\n\tvar hash = 5381;\n\tvar i = str.length;\n\n\twhile (i--) hash = ((hash << 5) - hash) ^ str.charCodeAt(i);\n\treturn hash >>> 0;\n}",
+	        "wrapTransition": "function wrapTransition(component, node, fn, params, intro, outgroup) {\n\tvar obj = fn(node, params);\n\tvar duration = obj.duration || 300;\n\tvar ease = obj.easing || linear;\n\tvar cssText;\n\n\t// TODO share <style> tag between all transitions?\n\tif (obj.css && !transitionManager.stylesheet) {\n\t\tvar style = createElement('style');\n\t\tdocument.head.appendChild(style);\n\t\ttransitionManager.stylesheet = style.sheet;\n\t}\n\n\tif (intro) {\n\t\tif (obj.css && obj.delay) {\n\t\t\tcssText = node.style.cssText;\n\t\t\tnode.style.cssText += obj.css(0);\n\t\t}\n\n\t\tif (obj.tick) obj.tick(0);\n\t}\n\n\treturn {\n\t\tt: intro ? 0 : 1,\n\t\trunning: false,\n\t\tprogram: null,\n\t\tpending: null,\n\t\trun: function(intro, callback) {\n\t\t\tvar program = {\n\t\t\t\tstart: window.performance.now() + (obj.delay || 0),\n\t\t\t\tintro: intro,\n\t\t\t\tcallback: callback\n\t\t\t};\n\n\t\t\tif (obj.delay) {\n\t\t\t\tthis.pending = program;\n\t\t\t} else {\n\t\t\t\tthis.start(program);\n\t\t\t}\n\n\t\t\tif (!this.running) {\n\t\t\t\tthis.running = true;\n\t\t\t\ttransitionManager.add(this);\n\t\t\t}\n\t\t},\n\t\tstart: function(program) {\n\t\t\tcomponent.fire(program.intro ? 'intro.start' : 'outro.start', { node: node });\n\n\t\t\tprogram.a = this.t;\n\t\t\tprogram.b = program.intro ? 1 : 0;\n\t\t\tprogram.delta = program.b - program.a;\n\t\t\tprogram.duration = duration * Math.abs(program.b - program.a);\n\t\t\tprogram.end = program.start + program.duration;\n\n\t\t\tif (obj.css) {\n\t\t\t\tif (obj.delay) node.style.cssText = cssText;\n\n\t\t\t\tprogram.rule = generateRule(\n\t\t\t\t\tprogram.a,\n\t\t\t\t\tprogram.b,\n\t\t\t\t\tprogram.delta,\n\t\t\t\t\tprogram.duration,\n\t\t\t\t\tease,\n\t\t\t\t\tobj.css\n\t\t\t\t);\n\n\t\t\t\ttransitionManager.addRule(program.rule, program.name = '__svelte_' + hash(program.rule));\n\n\t\t\t\tnode.style.animation = (node.style.animation || '')\n\t\t\t\t\t.split(', ')\n\t\t\t\t\t.filter(function(anim) {\n\t\t\t\t\t\t// when introing, discard old animations if there are any\n\t\t\t\t\t\treturn anim && (program.delta < 0 || !/__svelte/.test(anim));\n\t\t\t\t\t})\n\t\t\t\t\t.concat(program.name + ' ' + program.duration + 'ms linear 1 forwards')\n\t\t\t\t\t.join(', ');\n\t\t\t}\n\n\t\t\tthis.program = program;\n\t\t\tthis.pending = null;\n\t\t},\n\t\tupdate: function(now) {\n\t\t\tvar program = this.program;\n\t\t\tif (!program) return;\n\n\t\t\tvar p = now - program.start;\n\t\t\tthis.t = program.a + program.delta * ease(p / program.duration);\n\t\t\tif (obj.tick) obj.tick(this.t);\n\t\t},\n\t\tdone: function() {\n\t\t\tvar program = this.program;\n\t\t\tthis.t = program.b;\n\t\t\tif (obj.tick) obj.tick(this.t);\n\t\t\tif (obj.css) transitionManager.deleteRule(node, program.name);\n\t\t\tprogram.callback();\n\t\t\tprogram = null;\n\t\t\tthis.running = !!this.pending;\n\t\t},\n\t\tabort: function() {\n\t\t\tif (obj.tick) obj.tick(1);\n\t\t\tif (obj.css) transitionManager.deleteRule(node, this.program.name);\n\t\t\tthis.program = this.pending = null;\n\t\t\tthis.running = false;\n\t\t}\n\t};\n}",
+	        "transitionManager": "{\n\trunning: false,\n\ttransitions: [],\n\tbound: null,\n\tstylesheet: null,\n\tactiveRules: {},\n\n\tadd: function(transition) {\n\t\tthis.transitions.push(transition);\n\n\t\tif (!this.running) {\n\t\t\tthis.running = true;\n\t\t\trequestAnimationFrame(this.bound || (this.bound = this.next.bind(this)));\n\t\t}\n\t},\n\n\taddRule: function(rule, name) {\n\t\tif (!this.activeRules[name]) {\n\t\t\tthis.activeRules[name] = true;\n\t\t\tthis.stylesheet.insertRule('@keyframes ' + name + ' ' + rule, this.stylesheet.cssRules.length);\n\t\t}\n\t},\n\n\tnext: function() {\n\t\tthis.running = false;\n\n\t\tvar now = window.performance.now();\n\t\tvar i = this.transitions.length;\n\n\t\twhile (i--) {\n\t\t\tvar transition = this.transitions[i];\n\n\t\t\tif (transition.program && now >= transition.program.end) {\n\t\t\t\ttransition.done();\n\t\t\t}\n\n\t\t\tif (transition.pending && now >= transition.pending.start) {\n\t\t\t\ttransition.start(transition.pending);\n\t\t\t}\n\n\t\t\tif (transition.running) {\n\t\t\t\ttransition.update(now);\n\t\t\t\tthis.running = true;\n\t\t\t} else if (!transition.pending) {\n\t\t\t\tthis.transitions.splice(i, 1);\n\t\t\t}\n\t\t}\n\n\t\tif (this.running) {\n\t\t\trequestAnimationFrame(this.bound);\n\t\t} else if (this.stylesheet) {\n\t\t\tvar i = this.stylesheet.cssRules.length;\n\t\t\twhile (i--) this.stylesheet.deleteRule(i);\n\t\t\tthis.activeRules = {};\n\t\t}\n\t},\n\n\tdeleteRule: function(node, name) {\n\t\tnode.style.animation = node.style.animation\n\t\t\t.split(', ')\n\t\t\t.filter(function(anim) {\n\t\t\t\treturn anim.indexOf(name) === -1;\n\t\t\t})\n\t\t\t.join(', ');\n\t}\n}",
+	        "noop": "function noop() {}",
+	        "assign": "function assign(tar, src) {\n\tfor (var k in src) tar[k] = src[k];\n\treturn tar;\n}",
+	        "assignTrue": "function assignTrue(tar, src) {\n\tfor (var k in src) tar[k] = 1;\n\treturn tar;\n}"
 	    };
 
 	    function detectIndentation(str) {
@@ -22115,14 +22694,14 @@
 	    // the wrong idea about the shape of each/if blocks
 	    childKeys.EachBlock = childKeys.IfBlock = ['children', 'else'];
 	    childKeys.Attribute = ['value'];
-	    class Generator {
-	        constructor(parsed, source, name, stylesheet, options, stats, dom) {
+	    class Compiler {
+	        constructor(ast, source, name, stylesheet, options, stats, dom, target) {
 	            stats.start('compile');
 	            this.stats = stats;
-	            this.ast = clone(parsed);
-	            this.parsed = parsed;
+	            this.ast = ast;
 	            this.source = source;
 	            this.options = options;
+	            this.target = target;
 	            this.imports = [];
 	            this.shorthandImports = [];
 	            this.helpers = new Set();
@@ -22165,9 +22744,11 @@
 	            if (this.customElement && !this.customElement.tag) {
 	                throw new Error(`No tag name specified`); // TODO better error
 	            }
-	            this.walkTemplate();
+	            this.fragment = new Fragment(this, ast.html);
+	            // this.walkTemplate();
 	            if (!this.customElement)
 	                this.stylesheet.reify();
+	            stylesheet.warnOnUnusedSelectors(options.onwarn);
 	        }
 	        addSourcemapLocations(node) {
 	            walk(node, {
@@ -22183,90 +22764,90 @@
 	            }
 	            return this.aliases.get(name);
 	        }
-	        contextualise(contexts, indexes, expression, context, isEventHandler) {
-	            // this.addSourcemapLocations(expression);
-	            const usedContexts = new Set();
-	            const usedIndexes = new Set();
-	            const { code, helpers } = this;
-	            let scope;
-	            let lexicalDepth = 0;
-	            const self = this;
-	            walk(expression, {
-	                enter(node, parent, key) {
-	                    if (/^Function/.test(node.type))
-	                        lexicalDepth += 1;
-	                    if (node._scope) {
-	                        scope = node._scope;
-	                        return;
-	                    }
-	                    if (node.type === 'ThisExpression') {
-	                        if (lexicalDepth === 0 && context)
-	                            code.overwrite(node.start, node.end, context, {
-	                                storeName: true,
-	                                contentOnly: false,
-	                            });
-	                    }
-	                    else if (isReference(node, parent)) {
-	                        const { name } = flattenReference(node);
-	                        if (scope && scope.has(name))
-	                            return;
-	                        if (name === 'event' && isEventHandler) ;
-	                        else if (contexts.has(name)) {
-	                            const contextName = contexts.get(name);
-	                            if (contextName !== name) {
-	                                // this is true for 'reserved' names like `state` and `component`,
-	                                // also destructured contexts
-	                                code.overwrite(node.start, node.start + name.length, contextName, { storeName: true, contentOnly: false });
-	                                const destructuredName = contextName.replace(/\[\d+\]/, '');
-	                                if (destructuredName !== contextName) {
-	                                    // so that hoisting the context works correctly
-	                                    usedContexts.add(destructuredName);
-	                                }
-	                            }
-	                            usedContexts.add(name);
-	                        }
-	                        else if (helpers.has(name)) {
-	                            let object = node;
-	                            while (object.type === 'MemberExpression')
-	                                object = object.object;
-	                            const alias = self.templateVars.get(`helpers-${name}`);
-	                            if (alias !== name)
-	                                code.overwrite(object.start, object.end, alias);
-	                        }
-	                        else if (indexes.has(name)) {
-	                            const context = indexes.get(name);
-	                            usedContexts.add(context); // TODO is this right?
-	                            usedIndexes.add(name);
-	                        }
-	                        else {
-	                            // handle shorthand properties
-	                            if (parent && parent.type === 'Property' && parent.shorthand) {
-	                                if (key === 'key') {
-	                                    code.appendLeft(node.start, `${name}: `);
-	                                    return;
-	                                }
-	                            }
-	                            code.prependRight(node.start, `state.`);
-	                            usedContexts.add('state');
-	                        }
-	                        this.skip();
-	                    }
-	                },
-	                leave(node) {
-	                    if (/^Function/.test(node.type))
-	                        lexicalDepth -= 1;
-	                    if (node._scope)
-	                        scope = scope.parent;
-	                },
-	            });
-	            return {
-	                contexts: usedContexts,
-	                indexes: usedIndexes
-	            };
-	        }
-	        generate(result, options, { banner = '', sharedPath, helpers, name, format }) {
+	        generate(result, options, { banner = '', name, format }) {
 	            const pattern = /\[✂(\d+)-(\d+)$/;
-	            const module = wrapModule(result, format, name, options, banner, sharedPath, helpers, this.imports, this.shorthandImports, this.source);
+	            const helpers = new Set();
+	            // TODO use same regex for both
+	            result = result.replace(options.generate === 'ssr' ? /(@+|#+|%+)(\w*(?:-\w*)?)/g : /(%+|@+)(\w*(?:-\w*)?)/g, (match, sigil, name) => {
+	                if (sigil === '@') {
+	                    if (name in shared) {
+	                        if (options.dev && `${name}Dev` in shared)
+	                            name = `${name}Dev`;
+	                        helpers.add(name);
+	                    }
+	                    return this.alias(name);
+	                }
+	                if (sigil === '%') {
+	                    return this.templateVars.get(name);
+	                }
+	                return sigil.slice(1) + name;
+	            });
+	            let importedHelpers;
+	            if (options.shared) {
+	                if (format !== 'es' && format !== 'cjs') {
+	                    throw new Error(`Components with shared helpers must be compiled with \`format: 'es'\` or \`format: 'cjs'\``);
+	                }
+	                importedHelpers = Array.from(helpers).sort().map(name => {
+	                    const alias = this.alias(name);
+	                    return { name, alias };
+	                });
+	            }
+	            else {
+	                let inlineHelpers = '';
+	                const compiler = this;
+	                importedHelpers = [];
+	                helpers.forEach(name => {
+	                    const str = shared[name];
+	                    const code = new MagicString(str);
+	                    const expression = parseExpressionAt(str, 0);
+	                    let { scope } = annotateWithScopes(expression);
+	                    walk(expression, {
+	                        enter(node, parent) {
+	                            if (node._scope)
+	                                scope = node._scope;
+	                            if (node.type === 'Identifier' &&
+	                                isReference(node, parent) &&
+	                                !scope.has(node.name)) {
+	                                if (node.name in shared) {
+	                                    // this helper function depends on another one
+	                                    const dependency = node.name;
+	                                    helpers.add(dependency);
+	                                    const alias = compiler.alias(dependency);
+	                                    if (alias !== node.name) {
+	                                        code.overwrite(node.start, node.end, alias);
+	                                    }
+	                                }
+	                            }
+	                        },
+	                        leave(node) {
+	                            if (node._scope)
+	                                scope = scope.parent;
+	                        },
+	                    });
+	                    if (name === 'transitionManager') {
+	                        // special case
+	                        const global = `_svelteTransitionManager`;
+	                        inlineHelpers += `\n\nvar ${this.alias('transitionManager')} = window.${global} || (window.${global} = ${code});\n\n`;
+	                    }
+	                    else if (name === 'escaped' || name === 'missingComponent') {
+	                        // vars are an awkward special case... would be nice to avoid this
+	                        const alias = this.alias(name);
+	                        inlineHelpers += `\n\nconst ${alias} = ${code};`;
+	                    }
+	                    else {
+	                        const alias = this.alias(expression.id.name);
+	                        if (alias !== expression.id.name) {
+	                            code.overwrite(expression.id.start, expression.id.end, alias);
+	                        }
+	                        inlineHelpers += `\n\n${code}`;
+	                    }
+	                });
+	                result += inlineHelpers;
+	            }
+	            const sharedPath = options.shared === true
+	                ? 'svelte/shared.js'
+	                : options.shared || '';
+	            const module = wrapModule(result, format, name, options, banner, sharedPath, importedHelpers, this.imports, this.shorthandImports, this.source);
 	            const parts = module.split('✂]');
 	            const finalChunk = parts.pop();
 	            const compiled = new Bundle({ separator: '' });
@@ -22325,14 +22906,13 @@
 	            this.usedNames.add(alias);
 	            return alias;
 	        }
-	        getUniqueNameMaker(names) {
+	        getUniqueNameMaker() {
 	            const localUsedNames = new Set();
 	            function add(name) {
 	                localUsedNames.add(name);
 	            }
 	            reservedNames.forEach(add);
 	            this.userVars.forEach(add);
-	            names.forEach(add);
 	            return (name) => {
 	                if (test)
 	                    name = `${name}$`;
@@ -22346,7 +22926,7 @@
 	        }
 	        walkJs(dom) {
 	            const { code, source, computations, methods, templateProperties, imports } = this;
-	            const { js } = this.parsed;
+	            const { js } = this.ast;
 	            const componentDefinition = new CodeBuilder();
 	            if (js) {
 	                this.addSourcemapLocations(js.content);
@@ -22456,14 +23036,25 @@
 	                    }
 	                    if (templateProperties.computed) {
 	                        const dependencies = new Map();
+	                        const fullStateComputations = [];
 	                        templateProperties.computed.value.properties.forEach((prop) => {
 	                            const key = getMethodName(prop.key);
 	                            const value = prop.value;
-	                            const deps = value.params[0].properties.map(prop => prop.key.name);
-	                            deps.forEach(dep => {
-	                                this.expectedProperties.add(dep);
+	                            addDeclaration(key, value, false, 'computed', {
+	                                state: true,
+	                                changed: true
 	                            });
-	                            dependencies.set(key, deps);
+	                            const param = value.params[0];
+	                            if (param.type === 'ObjectPattern') {
+	                                const deps = param.properties.map(prop => prop.key.name);
+	                                deps.forEach(dep => {
+	                                    this.expectedProperties.add(dep);
+	                                });
+	                                dependencies.set(key, deps);
+	                            }
+	                            else {
+	                                fullStateComputations.push({ key, deps: null });
+	                            }
 	                        });
 	                        const visited = new Set();
 	                        const visit = (key) => {
@@ -22476,12 +23067,11 @@
 	                            deps.forEach(visit);
 	                            computations.push({ key, deps });
 	                            const prop = templateProperties.computed.value.properties.find((prop) => getMethodName(prop.key) === key);
-	                            addDeclaration(key, prop.value, false, 'computed', {
-	                                state: true,
-	                                changed: true
-	                            });
 	                        };
 	                        templateProperties.computed.value.properties.forEach((prop) => visit(getMethodName(prop.key)));
+	                        if (fullStateComputations.length > 0) {
+	                            computations.push(...fullStateComputations);
+	                        }
 	                    }
 	                    if (templateProperties.data) {
 	                        addDeclaration('data', templateProperties.data.value);
@@ -22573,240 +23163,74 @@
 	                }
 	            }
 	        }
-	        walkTemplate() {
-	            const generator = this;
-	            const { code, expectedProperties, helpers } = this;
-	            const { html: html$$1 } = this.parsed;
-	            const contextualise = (node, contextDependencies, indexes, isEventHandler) => {
-	                this.addSourcemapLocations(node); // TODO this involves an additional walk — can we roll it in somewhere else?
-	                let { scope } = annotateWithScopes(node);
-	                const dependencies = new Set();
-	                walk(node, {
-	                    enter(node, parent) {
-	                        code.addSourcemapLocation(node.start);
-	                        code.addSourcemapLocation(node.end);
-	                        if (node._scope) {
-	                            scope = node._scope;
-	                            return;
-	                        }
-	                        if (isReference(node, parent)) {
-	                            const { name } = flattenReference(node);
-	                            if (scope && scope.has(name) || helpers.has(name) || (name === 'event' && isEventHandler))
-	                                return;
-	                            if (contextDependencies.has(name)) {
-	                                contextDependencies.get(name).forEach(dependency => {
-	                                    dependencies.add(dependency);
-	                                });
-	                            }
-	                            else if (!indexes.has(name)) {
-	                                dependencies.add(name);
-	                            }
-	                            this.skip();
-	                        }
-	                    },
-	                    leave(node, parent) {
-	                        if (node._scope)
-	                            scope = scope.parent;
-	                    }
-	                });
-	                dependencies.forEach(dependency => {
-	                    expectedProperties.add(dependency);
-	                });
-	                return {
-	                    snippet: `[✂${node.start}-${node.end}✂]`,
-	                    dependencies: Array.from(dependencies)
-	                };
-	            };
-	            let contextDependencies = new Map();
-	            const contextDependenciesStack = [contextDependencies];
-	            let indexes = new Set();
-	            const indexesStack = [indexes];
-	            function parentIsHead(node) {
-	                if (!node)
-	                    return false;
-	                if (node.type === 'Component' || node.type === 'Element')
-	                    return false;
-	                if (node.type === 'Head')
-	                    return true;
-	                return parentIsHead(node.parent);
-	            }
-	            walk(html$$1, {
-	                enter(node, parent, key) {
-	                    // TODO this is hacky as hell
-	                    if (key === 'parent')
-	                        return this.skip();
-	                    node.parent = parent;
-	                    node.generator = generator;
-	                    if (node.type === 'Element' && (node.name === 'svelte:component' || node.name === 'svelte:self' || generator.components.has(node.name))) {
-	                        node.type = 'Component';
-	                        Object.setPrototypeOf(node, nodes.Component.prototype);
-	                    }
-	                    else if (node.type === 'Element' && node.name === 'title' && parentIsHead(parent)) { // TODO do this in parse?
-	                        node.type = 'Title';
-	                        Object.setPrototypeOf(node, nodes.Title.prototype);
-	                    }
-	                    else if (node.type === 'Element' && node.name === 'slot' && !generator.customElement) {
-	                        node.type = 'Slot';
-	                        Object.setPrototypeOf(node, nodes.Slot.prototype);
-	                    }
-	                    else if (node.type in nodes) {
-	                        Object.setPrototypeOf(node, nodes[node.type].prototype);
-	                    }
-	                    if (node.type === 'Element') {
-	                        generator.stylesheet.apply(node);
-	                    }
-	                    if (node.type === 'EachBlock') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                        contextDependencies = new Map(contextDependencies);
-	                        contextDependencies.set(node.context, node.metadata.dependencies);
-	                        if (node.destructuredContexts) {
-	                            node.destructuredContexts.forEach((name) => {
-	                                contextDependencies.set(name, node.metadata.dependencies);
-	                            });
-	                        }
-	                        contextDependenciesStack.push(contextDependencies);
-	                        if (node.index) {
-	                            indexes = new Set(indexes);
-	                            indexes.add(node.index);
-	                            indexesStack.push(indexes);
-	                        }
-	                    }
-	                    if (node.type === 'AwaitBlock') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                        contextDependencies = new Map(contextDependencies);
-	                        contextDependencies.set(node.value, node.metadata.dependencies);
-	                        contextDependencies.set(node.error, node.metadata.dependencies);
-	                        contextDependenciesStack.push(contextDependencies);
-	                    }
-	                    if (node.type === 'IfBlock') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                    }
-	                    if (node.type === 'MustacheTag' || node.type === 'RawMustacheTag' || node.type === 'AttributeShorthand') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                        this.skip();
-	                    }
-	                    if (node.type === 'Binding') {
-	                        node.metadata = contextualise(node.value, contextDependencies, indexes, false);
-	                        this.skip();
-	                    }
-	                    if (node.type === 'EventHandler' && node.expression) {
-	                        node.expression.arguments.forEach((arg) => {
-	                            arg.metadata = contextualise(arg, contextDependencies, indexes, true);
-	                        });
-	                        this.skip();
-	                    }
-	                    if (node.type === 'Transition' && node.expression) {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                        this.skip();
-	                    }
-	                    if (node.type === 'Action' && node.expression) {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                        if (node.expression.type === 'CallExpression') {
-	                            node.expression.arguments.forEach((arg) => {
-	                                arg.metadata = contextualise(arg, contextDependencies, indexes, true);
-	                            });
-	                        }
-	                        this.skip();
-	                    }
-	                    if (node.type === 'Component' && node.name === 'svelte:component') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                    }
-	                    if (node.type === 'Spread') {
-	                        node.metadata = contextualise(node.expression, contextDependencies, indexes, false);
-	                    }
-	                },
-	                leave(node, parent) {
-	                    if (node.type === 'EachBlock') {
-	                        contextDependenciesStack.pop();
-	                        contextDependencies = contextDependenciesStack[contextDependenciesStack.length - 1];
-	                        if (node.index) {
-	                            indexesStack.pop();
-	                            indexes = indexesStack[indexesStack.length - 1];
-	                        }
-	                    }
-	                    if (node.type === 'Element' && node.name === 'option') {
-	                        // Special case — treat these the same way:
-	                        //   <option>{{foo}}</option>
-	                        //   <option value='{{foo}}'>{{foo}}</option>
-	                        const valueAttribute = node.attributes.find((attribute) => attribute.name === 'value');
-	                        if (!valueAttribute) {
-	                            node.attributes.push(new nodes.Attribute({
-	                                generator,
-	                                name: 'value',
-	                                value: node.children,
-	                                parent: node
-	                            }));
-	                        }
-	                    }
-	                }
-	            });
-	        }
 	    }
 
-	    class DomGenerator extends Generator {
-	        constructor(parsed, source, name, stylesheet, options, stats) {
-	            super(parsed, source, name, stylesheet, options, stats, true);
+	    class DomTarget {
+	        constructor() {
 	            this.blocks = [];
 	            this.readonly = new Set();
-	            this.hydratable = options.hydratable;
-	            this.legacy = options.legacy;
-	            this.needsEncapsulateHelper = false;
 	            // initial values for e.g. window.innerWidth, if there's a <svelte:window> meta tag
 	            this.metaBindings = [];
 	        }
 	    }
-	    function dom(parsed, source, stylesheet, options, stats) {
+	    function dom(ast, source, stylesheet, options, stats) {
 	        const format = options.format || 'es';
-	        const generator = new DomGenerator(parsed, source, options.name || 'SvelteComponent', stylesheet, options, stats);
-	        const { computations, name, templateProperties, namespace, } = generator;
-	        parsed.html.build();
-	        const { block } = parsed.html;
+	        const target = new DomTarget();
+	        const compiler = new Compiler(ast, source, options.name || 'SvelteComponent', stylesheet, options, stats, true, target);
+	        const { computations, name, templateProperties, namespace, } = compiler;
+	        compiler.fragment.build();
+	        const { block } = compiler.fragment;
 	        // prevent fragment being created twice (#1063)
 	        if (options.customElement)
 	            block.builders.create.addLine(`this.c = @noop;`);
-	        generator.stylesheet.warnOnUnusedSelectors(options.onwarn);
 	        const builder = new CodeBuilder();
 	        const computationBuilder = new CodeBuilder();
 	        const computationDeps = new Set();
 	        if (computations.length) {
 	            computations.forEach(({ key, deps }) => {
-	                deps.forEach(dep => {
-	                    computationDeps.add(dep);
-	                });
-	                if (generator.readonly.has(key)) {
+	                if (target.readonly.has(key)) {
 	                    // <svelte:window> bindings
 	                    throw new Error(`Cannot have a computed value '${key}' that clashes with a read-only property`);
 	                }
-	                generator.readonly.add(key);
-	                const condition = `${deps.map(dep => `changed.${dep}`).join(' || ')}`;
-	                const statement = `if (this._differs(state.${key}, (state.${key} = %computed-${key}(state)))) changed.${key} = true;`;
-	                computationBuilder.addConditional(condition, statement);
+	                target.readonly.add(key);
+	                if (deps) {
+	                    deps.forEach(dep => {
+	                        computationDeps.add(dep);
+	                    });
+	                    const condition = `${deps.map(dep => `changed.${dep}`).join(' || ')}`;
+	                    const statement = `if (this._differs(state.${key}, (state.${key} = %computed-${key}(state)))) changed.${key} = true;`;
+	                    computationBuilder.addConditional(condition, statement);
+	                }
+	                else {
+	                    // computed property depends on entire state object —
+	                    // these must go at the end
+	                    computationBuilder.addLine(`if (this._differs(state.${key}, (state.${key} = %computed-${key}(state)))) changed.${key} = true;`);
+	                }
 	            });
 	        }
-	        if (generator.javascript) {
-	            builder.addBlock(generator.javascript);
+	        if (compiler.javascript) {
+	            builder.addBlock(compiler.javascript);
 	        }
-	        const css = generator.stylesheet.render(options.filename, !generator.customElement);
-	        const styles = generator.stylesheet.hasStyles && stringify(options.dev ?
+	        const css = compiler.stylesheet.render(options.filename, !compiler.customElement);
+	        const styles = compiler.stylesheet.hasStyles && stringify(options.dev ?
 	            `${css.code}\n/*# sourceMappingURL=${css.map.toUrl()} */` :
 	            css.code, { onlyEscapeAtSymbol: true });
-	        if (styles && generator.options.css !== false && !generator.customElement) {
+	        if (styles && compiler.options.css !== false && !compiler.customElement) {
 	            builder.addBlock(deindent `
 			function @add_css() {
 				var style = @createElement("style");
-				style.id = '${generator.stylesheet.id}-style';
+				style.id = '${compiler.stylesheet.id}-style';
 				style.textContent = ${styles};
 				@appendNode(style, document.head);
 			}
 		`);
 	        }
-	        generator.blocks.forEach(block => {
+	        target.blocks.forEach(block => {
 	            builder.addBlock(block.toString());
 	        });
 	        const sharedPath = options.shared === true
 	            ? 'svelte/shared.js'
 	            : options.shared || '';
-	        let prototypeBase = `${name}.prototype`;
 	        const proto = sharedPath
 	            ? `@proto`
 	            : deindent `
@@ -22815,9 +23239,9 @@
             .map(n => `${n}: @${n}`)
             .join(',\n')}
 		}`;
-	        const debugName = `<${generator.customElement ? generator.tag : name}>`;
+	        const debugName = `<${compiler.customElement ? compiler.tag : name}>`;
 	        // generate initial state object
-	        const expectedProperties = Array.from(generator.expectedProperties);
+	        const expectedProperties = Array.from(compiler.expectedProperties);
 	        const globals = expectedProperties.filter(prop => globalWhitelist.has(prop));
 	        const storeProps = expectedProperties.filter(prop => prop[0] === '$');
 	        const initialState = [];
@@ -22837,56 +23261,56 @@
 	        const hasInitHooks = !!(templateProperties.oncreate || templateProperties.onstate || templateProperties.onupdate);
 	        const constructorBody = deindent `
 		${options.dev && `this._debugName = '${debugName}';`}
-		${options.dev && !generator.customElement &&
+		${options.dev && !compiler.customElement &&
         `if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");`}
 		@init(this, options);
 		${templateProperties.store && `this.store = %store();`}
-		${generator.usesRefs && `this.refs = {};`}
+		${compiler.usesRefs && `this.refs = {};`}
 		this._state = ${initialState.reduce((state, piece) => `@assign(${state}, ${piece})`)};
 		${storeProps.length > 0 && `this.store._add(this, [${storeProps.map(prop => `"${prop.slice(1)}"`)}]);`}
-		${generator.metaBindings}
+		${target.metaBindings}
 		${computations.length && `this._recompute({ ${Array.from(computationDeps).map(dep => `${dep}: 1`).join(', ')} }, this._state);`}
 		${options.dev &&
-        Array.from(generator.expectedProperties).map(prop => {
+        Array.from(compiler.expectedProperties).map(prop => {
             if (globalWhitelist.has(prop))
                 return;
             if (computations.find(c => c.key === prop))
                 return;
-            const message = generator.components.has(prop) ?
+            const message = compiler.components.has(prop) ?
                 `${debugName} expected to find '${prop}' in \`data\`, but found it in \`components\` instead` :
                 `${debugName} was created without expected data property '${prop}'`;
             const conditions = [`!('${prop}' in this._state)`];
-            if (generator.customElement)
+            if (compiler.customElement)
                 conditions.push(`!('${prop}' in this.attributes)`);
             return `if (${conditions.join(' && ')}) console.warn("${message}");`;
         })}
-		${generator.bindingGroups.length &&
-        `this._bindingGroups = [${Array(generator.bindingGroups.length).fill('[]').join(', ')}];`}
+		${compiler.bindingGroups.length &&
+        `this._bindingGroups = [${Array(compiler.bindingGroups.length).fill('[]').join(', ')}];`}
 
 		${templateProperties.onstate && `this._handlers.state = [%onstate];`}
 		${templateProperties.onupdate && `this._handlers.update = [%onupdate];`}
 
 		${(templateProperties.ondestroy || storeProps.length) && (`this._handlers.destroy = [${[templateProperties.ondestroy && `%ondestroy`, storeProps.length && `@removeFromStore`].filter(Boolean).join(', ')}];`)}
 
-		${generator.slots.size && `this._slotted = options.slots || {};`}
+		${compiler.slots.size && `this._slotted = options.slots || {};`}
 
-		${generator.customElement ?
+		${compiler.customElement ?
         deindent `
 				this.attachShadow({ mode: 'open' });
 				${css.code && `this.shadowRoot.innerHTML = \`<style>${escape(css.code, { onlyEscapeAtSymbol: true }).replace(/\\/g, '\\\\')}${options.dev ? `\n/*# sourceMappingURL=${css.map.toUrl()} */` : ''}</style>\`;`}
 			` :
-        (generator.stylesheet.hasStyles && options.css !== false &&
-            `if (!document.getElementById("${generator.stylesheet.id}-style")) @add_css();`)}
+        (compiler.stylesheet.hasStyles && options.css !== false &&
+            `if (!document.getElementById("${compiler.stylesheet.id}-style")) @add_css();`)}
 
-		${(hasInitHooks || generator.hasComponents || generator.hasComplexBindings || generator.hasIntroTransitions) && deindent `
+		${(hasInitHooks || compiler.hasComponents || target.hasComplexBindings || target.hasIntroTransitions) && deindent `
 			if (!options.root) {
 				this._oncreate = [];
-				${(generator.hasComponents || generator.hasComplexBindings) && `this._beforecreate = [];`}
-				${(generator.hasComponents || generator.hasIntroTransitions) && `this._aftercreate = [];`}
+				${(compiler.hasComponents || target.hasComplexBindings) && `this._beforecreate = [];`}
+				${(compiler.hasComponents || target.hasIntroTransitions) && `this._aftercreate = [];`}
 			}
 		`}
 
-		${generator.slots.size && `this.slots = {};`}
+		${compiler.slots.size && `this.slots = {};`}
 
 		this._fragment = @create_main_fragment(this, this._state);
 
@@ -22898,14 +23322,14 @@
 			});
 		`}
 
-		${generator.customElement ? deindent `
+		${compiler.customElement ? deindent `
 			this._fragment.c();
 			this._fragment.${block.hasIntroMethod ? 'i' : 'm'}(this.shadowRoot, null);
 
 			if (options.target) this._mount(options.target, options.anchor);
 		` : deindent `
 			if (options.target) {
-				${generator.hydratable
+				${compiler.options.hydratable
         ? deindent `
 						var nodes = @children(options.target);
 						options.hydrate ? this._fragment.l(nodes) : this._fragment.c();
@@ -22917,18 +23341,18 @@
 					`}
 				this._mount(options.target, options.anchor);
 
-				${(generator.hasComponents || generator.hasComplexBindings || hasInitHooks || generator.hasIntroTransitions) && deindent `
-					${generator.hasComponents && `this._lock = true;`}
-					${(generator.hasComponents || generator.hasComplexBindings) && `@callAll(this._beforecreate);`}
-					${(generator.hasComponents || hasInitHooks) && `@callAll(this._oncreate);`}
-					${(generator.hasComponents || generator.hasIntroTransitions) && `@callAll(this._aftercreate);`}
-					${generator.hasComponents && `this._lock = false;`}
+				${(compiler.hasComponents || target.hasComplexBindings || hasInitHooks || target.hasIntroTransitions) && deindent `
+					${compiler.hasComponents && `this._lock = true;`}
+					${(compiler.hasComponents || target.hasComplexBindings) && `@callAll(this._beforecreate);`}
+					${(compiler.hasComponents || hasInitHooks) && `@callAll(this._oncreate);`}
+					${(compiler.hasComponents || target.hasIntroTransitions) && `@callAll(this._aftercreate);`}
+					${compiler.hasComponents && `this._lock = false;`}
 				`}
 			}
 		`}
 	`;
-	        if (generator.customElement) {
-	            const props = generator.props || Array.from(generator.expectedProperties);
+	        if (compiler.customElement) {
+	            const props = compiler.props || Array.from(compiler.expectedProperties);
 	            builder.addBlock(deindent `
 			class ${name} extends HTMLElement {
 				constructor(options = {}) {
@@ -22950,7 +23374,7 @@
 					}
 				`).join('\n\n')}
 
-				${generator.slots.size && deindent `
+				${compiler.slots.size && deindent `
 					connectedCallback() {
 						Object.keys(this._slotted).forEach(key => {
 							this.appendChild(this._slotted[key]);
@@ -22961,19 +23385,20 @@
 					this.set({ [attr]: newValue });
 				}
 
-				${(generator.hasComponents || generator.hasComplexBindings || templateProperties.oncreate || generator.hasIntroTransitions) && deindent `
+				${(compiler.hasComponents || target.hasComplexBindings || templateProperties.oncreate || target.hasIntroTransitions) && deindent `
 					connectedCallback() {
-						${generator.hasComponents && `this._lock = true;`}
-						${(generator.hasComponents || generator.hasComplexBindings) && `@callAll(this._beforecreate);`}
-						${(generator.hasComponents || templateProperties.oncreate) && `@callAll(this._oncreate);`}
-						${(generator.hasComponents || generator.hasIntroTransitions) && `@callAll(this._aftercreate);`}
-						${generator.hasComponents && `this._lock = false;`}
+						${compiler.hasComponents && `this._lock = true;`}
+						${(compiler.hasComponents || target.hasComplexBindings) && `@callAll(this._beforecreate);`}
+						${(compiler.hasComponents || templateProperties.oncreate) && `@callAll(this._oncreate);`}
+						${(compiler.hasComponents || target.hasIntroTransitions) && `@callAll(this._aftercreate);`}
+						${compiler.hasComponents && `this._lock = false;`}
 					}
 				`}
 			}
 
-			customElements.define("${generator.tag}", ${name});
-			@assign(@assign(${prototypeBase}, ${proto}), {
+			@assign(${name}.prototype, ${proto});
+			${templateProperties.methods && `@assign(${name}.prototype, %methods);`}
+			@assign(${name}.prototype, {
 				_mount(target, anchor) {
 					target.insertBefore(this, anchor);
 				},
@@ -22982,6 +23407,8 @@
 					this.parentNode.removeChild(this);
 				}
 			});
+
+			customElements.define("${compiler.tag}", ${name});
 		`);
 	        }
 	        else {
@@ -22990,15 +23417,15 @@
 				${constructorBody}
 			}
 
-			@assign(${prototypeBase}, ${proto});
-			${templateProperties.methods && `@assign(${prototypeBase}, %methods);`}
+			@assign(${name}.prototype, ${proto});
+			${templateProperties.methods && `@assign(${name}.prototype, %methods);`}
 		`);
 	        }
 	        const immutable = templateProperties.immutable ? templateProperties.immutable.value.value : options.immutable;
 	        builder.addBlock(deindent `
 		${options.dev && deindent `
 			${name}.prototype._checkReadOnly = function _checkReadOnly(newState) {
-				${Array.from(generator.readonly).map(prop => `if ('${prop}' in newState && !this._updatingReadonlyProperty) throw new Error("${debugName}: Cannot set read-only property '${prop}'");`)}
+				${Array.from(target.readonly).map(prop => `if ('${prop}' in newState && !this._updatingReadonlyProperty) throw new Error("${debugName}: Cannot set read-only property '${prop}'");`)}
 			};
 		`}
 
@@ -23014,489 +23441,21 @@
 
 		${immutable && `${name}.prototype._differs = @_differsImmutable;`}
 	`);
-	        const usedHelpers = new Set();
-	        let result = builder
-	            .toString()
-	            .replace(/(%+|@+)(\w*(?:-\w*)?)/g, (match, sigil, name) => {
-	            if (sigil === '@') {
-	                if (name in shared) {
-	                    if (options.dev && `${name}Dev` in shared)
-	                        name = `${name}Dev`;
-	                    usedHelpers.add(name);
-	                }
-	                return generator.alias(name);
-	            }
-	            if (sigil === '%') {
-	                return generator.templateVars.get(name);
-	            }
-	            return sigil.slice(1) + name;
-	        });
-	        let helpers;
-	        if (sharedPath) {
-	            if (format !== 'es' && format !== 'cjs') {
-	                throw new Error(`Components with shared helpers must be compiled with \`format: 'es'\` or \`format: 'cjs'\``);
-	            }
-	            const used = Array.from(usedHelpers).sort();
-	            helpers = used.map(name => {
-	                const alias = generator.alias(name);
-	                return { name, alias };
-	            });
-	        }
-	        else {
-	            let inlineHelpers = '';
-	            usedHelpers.forEach(key => {
-	                const str = shared[key];
-	                const code = new MagicString(str);
-	                const expression = parseExpressionAt(str, 0);
-	                let { scope } = annotateWithScopes(expression);
-	                walk(expression, {
-	                    enter(node, parent) {
-	                        if (node._scope)
-	                            scope = node._scope;
-	                        if (node.type === 'Identifier' &&
-	                            isReference(node, parent) &&
-	                            !scope.has(node.name)) {
-	                            if (node.name in shared) {
-	                                // this helper function depends on another one
-	                                const dependency = node.name;
-	                                usedHelpers.add(dependency);
-	                                const alias = generator.alias(dependency);
-	                                if (alias !== node.name)
-	                                    code.overwrite(node.start, node.end, alias);
-	                            }
-	                        }
-	                    },
-	                    leave(node) {
-	                        if (node._scope)
-	                            scope = scope.parent;
-	                    },
-	                });
-	                if (key === 'transitionManager') {
-	                    // special case
-	                    const global = `_svelteTransitionManager`;
-	                    inlineHelpers += `\n\nvar ${generator.alias('transitionManager')} = window.${global} || (window.${global} = ${code});\n\n`;
-	                }
-	                else {
-	                    const alias = generator.alias(expression.id.name);
-	                    if (alias !== expression.id.name)
-	                        code.overwrite(expression.id.start, expression.id.end, alias);
-	                    inlineHelpers += `\n\n${code}`;
-	                }
-	            });
-	            result += inlineHelpers;
-	        }
+	        let result = builder.toString();
 	        const filename = options.filename && (typeof process !== 'undefined' ? options.filename.replace(process.cwd(), '').replace(/^[\/\\]/, '') : options.filename);
-	        return generator.generate(result, options, {
-	            banner: `/* ${filename ? `${filename} ` : ``}generated by Svelte v${"2.1.1"} */`,
+	        return compiler.generate(result, options, {
+	            banner: `/* ${filename ? `${filename} ` : ``}generated by Svelte v${"2.4.2"} */`,
 	            sharedPath,
-	            helpers,
 	            name,
 	            format,
 	        });
 	    }
 
-	    class Block$3 {
-	        constructor(options) {
-	            Object.assign(this, options);
-	        }
-	        addBinding(binding, name) {
-	            const conditions = [`!('${binding.name}' in state)`].concat(
-	            // TODO handle contextual bindings...
-	            this.conditions.map(c => `(${c})`));
-	            const { name: prop } = getObject(binding.value);
-	            this.generator.bindings.push(deindent `
-			if (${conditions.join('&&')}) {
-				tmp = ${name}.data();
-				if ('${prop}' in tmp) {
-					state.${binding.name} = tmp.${prop};
-					settled = false;
-				}
-			}
-		`);
-	        }
-	        child(options) {
-	            return new Block$3(Object.assign({}, this, options, { parent: this }));
-	        }
-	        contextualise(expression, context, isEventHandler) {
-	            return this.generator.contextualise(this.contexts, this.indexes, expression, context, isEventHandler);
-	        }
-	    }
-
-	    function visitAwaitBlock(generator, block, node) {
-	        block.contextualise(node.expression);
-	        const { dependencies, snippet } = node.metadata;
-	        // TODO should this be the generator's job? It's duplicated between
-	        // here and the equivalent DOM compiler visitor
-	        const contexts = new Map(block.contexts);
-	        contexts.set(node.value, '__value');
-	        const contextDependencies = new Map(block.contextDependencies);
-	        contextDependencies.set(node.value, dependencies);
-	        const childBlock = block.child({
-	            contextDependencies,
-	            contexts
-	        });
-	        generator.append('${(function(__value) { if(__isPromise(__value)) return `');
-	        node.pending.children.forEach((child) => {
-	            visit$1(generator, childBlock, child);
-	        });
-	        generator.append('`; return `');
-	        node.then.children.forEach((child) => {
-	            visit$1(generator, childBlock, child);
-	        });
-	        generator.append(`\`;}(${snippet})) }`);
-	    }
-
-	    function visitComment(generator, block, node) {
-	        // Allow option to preserve comments, otherwise ignore
-	        if (generator && generator.options && generator.options.preserveComments) {
-	            generator.append(`<!--${node.data}-->`);
-	        }
-	    }
-
-	    function visitComponent(generator, block, node) {
-	        function stringifyAttribute(chunk) {
-	            if (chunk.type === 'Text') {
-	                return escapeTemplate(escape(chunk.data));
-	            }
-	            if (chunk.type === 'MustacheTag') {
-	                block.contextualise(chunk.expression);
-	                const { snippet } = chunk.metadata;
-	                return '${__escape( ' + snippet + ')}';
-	            }
-	        }
-	        const attributes = [];
-	        const bindings = [];
-	        let usesSpread;
-	        node.attributes.forEach((attribute) => {
-	            if (attribute.type === 'Attribute' || attribute.type === 'Spread') {
-	                if (attribute.type === 'Spread')
-	                    usesSpread = true;
-	                attributes.push(attribute);
-	            }
-	            else if (attribute.type === 'Binding') {
-	                bindings.push(attribute);
-	            }
-	        });
-	        const bindingProps = bindings.map(binding => {
-	            const { name } = getObject(binding.value);
-	            const tail = binding.value.type === 'MemberExpression'
-	                ? getTailSnippet(binding.value)
-	                : '';
-	            const keypath = block.contexts.has(name)
-	                ? `${name}${tail}`
-	                : `state.${name}${tail}`;
-	            return `${binding.name}: ${keypath}`;
-	        });
-	        function getAttributeValue(attribute) {
-	            if (attribute.value === true)
-	                return `true`;
-	            if (attribute.value.length === 0)
-	                return `''`;
-	            if (attribute.value.length === 1) {
-	                const chunk = attribute.value[0];
-	                if (chunk.type === 'Text') {
-	                    return stringify(chunk.data);
-	                }
-	                block.contextualise(chunk.expression);
-	                const { snippet } = chunk.metadata;
-	                return snippet;
-	            }
-	            return '`' + attribute.value.map(stringifyAttribute).join('') + '`';
-	        }
-	        const props = usesSpread
-	            ? `Object.assign(${attributes
-            .map(attribute => {
-            if (attribute.type === 'Spread') {
-                block.contextualise(attribute.expression);
-                return attribute.metadata.snippet;
-            }
-            else {
-                return `{ ${attribute.name}: ${getAttributeValue(attribute)} }`;
-            }
-        })
-            .concat(bindingProps.map(p => `{ ${p} }`))
-            .join(', ')})`
-	            : `{ ${attributes
-            .map(attribute => `${attribute.name}: ${getAttributeValue(attribute)}`)
-            .concat(bindingProps)
-            .join(', ')} }`;
-	        const isDynamicComponent = node.name === 'svelte:component';
-	        if (isDynamicComponent)
-	            block.contextualise(node.expression);
-	        const expression = (node.name === 'svelte:self' ? generator.name :
-	            isDynamicComponent ? `((${node.metadata.snippet}) || __missingComponent)` :
-	                `%components-${node.name}`);
-	        bindings.forEach(binding => {
-	            block.addBinding(binding, expression);
-	        });
-	        let open = `\${${expression}._render(__result, ${props}`;
-	        const options = [];
-	        options.push(`store: options.store`);
-	        if (node.children.length) {
-	            const appendTarget = {
-	                slots: { default: '' },
-	                slotStack: ['default']
-	            };
-	            generator.appendTargets.push(appendTarget);
-	            node.children.forEach((child) => {
-	                visit$1(generator, block, child);
-	            });
-	            const slotted = Object.keys(appendTarget.slots)
-	                .map(name => `${name}: () => \`${appendTarget.slots[name]}\``)
-	                .join(', ');
-	            options.push(`slotted: { ${slotted} }`);
-	            generator.appendTargets.pop();
-	        }
-	        if (options.length) {
-	            open += `, { ${options.join(', ')} }`;
-	        }
-	        generator.append(open);
-	        generator.append(')}');
-	    }
-
-	    function visitEachBlock(generator, block, node) {
-	        block.contextualise(node.expression);
-	        const { dependencies, snippet } = node.metadata;
-	        const open = `\${ ${node.else ? `${snippet}.length ? ` : ''}${snippet}.map(${node.index ? `(${node.context}, ${node.index})` : `(${node.context})`} => \``;
-	        generator.append(open);
-	        // TODO should this be the generator's job? It's duplicated between
-	        // here and the equivalent DOM compiler visitor
-	        const contexts = new Map(block.contexts);
-	        contexts.set(node.context, node.context);
-	        const indexes = new Map(block.indexes);
-	        if (node.index)
-	            indexes.set(node.index, node.context);
-	        const contextDependencies = new Map(block.contextDependencies);
-	        contextDependencies.set(node.context, dependencies);
-	        if (node.destructuredContexts) {
-	            for (let i = 0; i < node.destructuredContexts.length; i += 1) {
-	                contexts.set(node.destructuredContexts[i], `${node.context}[${i}]`);
-	                contextDependencies.set(node.destructuredContexts[i], dependencies);
-	            }
-	        }
-	        const childBlock = block.child({
-	            contexts,
-	            indexes,
-	            contextDependencies,
-	        });
-	        node.children.forEach((child) => {
-	            visit$1(generator, childBlock, child);
-	        });
-	        const close = `\`).join("")`;
-	        generator.append(close);
-	        if (node.else) {
-	            generator.append(` : \``);
-	            node.else.children.forEach((child) => {
-	                visit$1(generator, block, child);
-	            });
-	            generator.append(`\``);
-	        }
-	        generator.append('}');
-	    }
-
-	    function visitSlot(generator, block, node) {
-	        const name = node.attributes.find((attribute) => attribute.name);
-	        const slotName = name && name.value[0].data || 'default';
-	        generator.append(`\${options && options.slotted && options.slotted.${slotName} ? options.slotted.${slotName}() : \``);
-	        node.children.forEach((child) => {
-	            visit$1(generator, block, child);
-	        });
-	        generator.append(`\`}`);
-	    }
-
-	    function stringifyAttributeValue$1(block, chunks) {
-	        return chunks
-	            .map((chunk) => {
-	            if (chunk.type === 'Text') {
-	                return escapeTemplate(escape(chunk.data).replace(/"/g, '&quot;'));
-	            }
-	            block.contextualise(chunk.expression);
-	            const { snippet } = chunk.metadata;
-	            return '${__escape(' + snippet + ')}';
-	        })
-	            .join('');
-	    }
-
-	    // source: https://gist.github.com/ArjanSchouten/0b8574a6ad7f5065a5e7
-	    const booleanAttributes = new Set('async autocomplete autofocus autoplay border challenge checked compact contenteditable controls default defer disabled formnovalidate frameborder hidden indeterminate ismap loop multiple muted nohref noresize noshade novalidate nowrap open readonly required reversed scoped scrolling seamless selected sortable spellcheck translate'.split(' '));
-	    function visitElement(generator, block, node) {
-	        if (node.name === 'slot') {
-	            visitSlot(generator, block, node);
-	            return;
-	        }
-	        let openingTag = `<${node.name}`;
-	        let textareaContents; // awkward special case
-	        const slot = node.getStaticAttributeValue('slot');
-	        if (slot && node.hasAncestor('Component')) {
-	            const slot = node.attributes.find((attribute) => attribute.name === 'slot');
-	            const slotName = slot.value[0].data;
-	            const appendTarget = generator.appendTargets[generator.appendTargets.length - 1];
-	            appendTarget.slotStack.push(slotName);
-	            appendTarget.slots[slotName] = '';
-	        }
-	        if (node.attributes.find(attr => attr.type === 'Spread')) {
-	            // TODO dry this out
-	            const args = [];
-	            node.attributes.forEach((attribute) => {
-	                if (attribute.type === 'Spread') {
-	                    block.contextualise(attribute.expression);
-	                    args.push(attribute.metadata.snippet);
-	                }
-	                else if (attribute.type === 'Attribute') {
-	                    if (attribute.name === 'value' && node.name === 'textarea') {
-	                        textareaContents = stringifyAttributeValue$1(block, attribute.value);
-	                    }
-	                    else if (attribute.value === true) {
-	                        args.push(`{ ${quoteIfNecessary(attribute.name)}: true }`);
-	                    }
-	                    else if (booleanAttributes.has(attribute.name) &&
-	                        attribute.value.length === 1 &&
-	                        attribute.value[0].type !== 'Text') {
-	                        // a boolean attribute with one non-Text chunk
-	                        block.contextualise(attribute.value[0].expression);
-	                        args.push(`{ ${quoteIfNecessary(attribute.name)}: ${attribute.value[0].metadata.snippet} }`);
-	                    }
-	                    else {
-	                        args.push(`{ ${quoteIfNecessary(attribute.name)}: \`${stringifyAttributeValue$1(block, attribute.value)}\` }`);
-	                    }
-	                }
-	            });
-	            openingTag += "${__spread([" + args.join(', ') + "])}";
-	        }
-	        else {
-	            node.attributes.forEach((attribute) => {
-	                if (attribute.type !== 'Attribute')
-	                    return;
-	                if (attribute.name === 'value' && node.name === 'textarea') {
-	                    textareaContents = stringifyAttributeValue$1(block, attribute.value);
-	                }
-	                else if (attribute.value === true) {
-	                    openingTag += ` ${attribute.name}`;
-	                }
-	                else if (booleanAttributes.has(attribute.name) &&
-	                    attribute.value.length === 1 &&
-	                    attribute.value[0].type !== 'Text') {
-	                    // a boolean attribute with one non-Text chunk
-	                    block.contextualise(attribute.value[0].expression);
-	                    openingTag += '${' + attribute.value[0].metadata.snippet + ' ? " ' + attribute.name + '" : "" }';
-	                }
-	                else {
-	                    openingTag += ` ${attribute.name}="${stringifyAttributeValue$1(block, attribute.value)}"`;
-	                }
-	            });
-	        }
-	        if (node._cssRefAttribute) {
-	            openingTag += ` svelte-ref-${node._cssRefAttribute}`;
-	        }
-	        openingTag += '>';
-	        generator.append(openingTag);
-	        if (node.name === 'textarea' && textareaContents !== undefined) {
-	            generator.append(textareaContents);
-	        }
-	        else {
-	            node.children.forEach((child) => {
-	                visit$1(generator, block, child);
-	            });
-	        }
-	        if (!isVoidElementName(node.name)) {
-	            generator.append(`</${node.name}>`);
-	        }
-	    }
-
-	    function visitDocument(generator, block, node) {
-	        generator.append('${(__result.head += `');
-	        node.children.forEach((child) => {
-	            visit$1(generator, block, child);
-	        });
-	        generator.append('`, "")}');
-	    }
-
-	    function visitIfBlock(generator, block, node) {
-	        block.contextualise(node.expression);
-	        const { snippet } = node.metadata;
-	        generator.append('${ ' + snippet + ' ? `');
-	        const childBlock = block.child({
-	            conditions: block.conditions.concat(snippet),
-	        });
-	        node.children.forEach((child) => {
-	            visit$1(generator, childBlock, child);
-	        });
-	        generator.append('` : `');
-	        if (node.else) {
-	            node.else.children.forEach((child) => {
-	                visit$1(generator, childBlock, child);
-	            });
-	        }
-	        generator.append('` }');
-	    }
-
-	    function visitMustacheTag(generator, block, node) {
-	        block.contextualise(node.expression);
-	        const { snippet } = node.metadata;
-	        generator.append(node.parent &&
-	            node.parent.type === 'Element' &&
-	            node.parent.name === 'style'
-	            ? '${' + snippet + '}'
-	            : '${__escape(' + snippet + ')}');
-	    }
-
-	    function visitRawMustacheTag(generator, block, node) {
-	        block.contextualise(node.expression);
-	        const { snippet } = node.metadata;
-	        generator.append('${' + snippet + '}');
-	    }
-
-	    function visitText(generator, block, node) {
-	        let text = node.data;
-	        if (!node.parent ||
-	            node.parent.type !== 'Element' ||
-	            (node.parent.name !== 'script' && node.parent.name !== 'style')) {
-	            // unless this Text node is inside a <script> or <style> element, escape &,<,>
-	            text = escapeHTML(text);
-	        }
-	        generator.append(escape(escapeTemplate(text)));
-	    }
-
-	    function visitTitle(generator, block, node) {
-	        generator.append(`<title>`);
-	        node.children.forEach((child) => {
-	            visit$1(generator, block, child);
-	        });
-	        generator.append(`</title>`);
-	    }
-
-	    function visitWindow() {
-	        // noop
-	    }
-
-	    var visitors = {
-	        AwaitBlock: visitAwaitBlock,
-	        Comment: visitComment,
-	        Component: visitComponent,
-	        EachBlock: visitEachBlock,
-	        Element: visitElement,
-	        Head: visitDocument,
-	        IfBlock: visitIfBlock,
-	        MustacheTag: visitMustacheTag,
-	        RawMustacheTag: visitRawMustacheTag,
-	        Slot: visitSlot,
-	        Text: visitText,
-	        Title: visitTitle,
-	        Window: visitWindow
-	    };
-
-	    function visit$1(generator, block, node) {
-	        const visitor = visitors[node.type];
-	        visitor(generator, block, node);
-	    }
-
-	    class SsrGenerator extends Generator {
-	        constructor(parsed, source, name, stylesheet, options, stats) {
-	            super(parsed, source, name, stylesheet, options, stats, false);
+	    class SsrTarget {
+	        constructor() {
 	            this.bindings = [];
 	            this.renderCode = '';
 	            this.appendTargets = [];
-	            this.stylesheet.warnOnUnusedSelectors(options.onwarn);
 	        }
 	        append(code) {
 	            if (this.appendTargets.length) {
@@ -23509,25 +23468,20 @@
 	            }
 	        }
 	    }
-	    function ssr(parsed, source, stylesheet, options, stats) {
+	    function ssr(ast, source, stylesheet, options, stats) {
 	        const format = options.format || 'cjs';
-	        const generator = new SsrGenerator(parsed, source, options.name || 'SvelteComponent', stylesheet, options, stats);
-	        const { computations, name, templateProperties } = generator;
+	        const target = new SsrTarget();
+	        const compiler = new Compiler(ast, source, options.name || 'SvelteComponent', stylesheet, options, stats, false, target);
+	        const { computations, name, templateProperties } = compiler;
 	        // create main render() function
-	        const mainBlock = new Block$3({
-	            generator,
-	            contexts: new Map(),
-	            indexes: new Map(),
-	            conditions: [],
+	        trim(compiler.fragment.children).forEach((node) => {
+	            node.ssr();
 	        });
-	        trim(parsed.html.children).forEach((node) => {
-	            visit$1(generator, mainBlock, node);
-	        });
-	        const css = generator.customElement ?
+	        const css = compiler.customElement ?
 	            { code: null, map: null } :
-	            generator.stylesheet.render(options.filename, true);
+	            compiler.stylesheet.render(options.filename, true);
 	        // generate initial state object
-	        const expectedProperties = Array.from(generator.expectedProperties);
+	        const expectedProperties = Array.from(compiler.expectedProperties);
 	        const globals = expectedProperties.filter(prop => globalWhitelist.has(prop));
 	        const storeProps = expectedProperties.filter(prop => prop[0] === '$');
 	        const initialState = [];
@@ -23544,10 +23498,10 @@
 	        else if (globals.length === 0 && storeProps.length === 0) {
 	            initialState.push('{}');
 	        }
-	        initialState.push('state');
+	        initialState.push('ctx');
 	        // TODO concatenate CSS maps
 	        const result = deindent `
-		${generator.javascript}
+		${compiler.javascript}
 
 		var ${name} = {};
 
@@ -23579,15 +23533,15 @@
 			};
 		}
 
-		${name}._render = function(__result, state, options) {
+		${name}._render = function(__result, ctx, options) {
 			${templateProperties.store && `options.store = %store();`}
 			__result.addComponent(${name});
 
-			state = Object.assign(${initialState.join(', ')});
+			ctx = Object.assign(${initialState.join(', ')});
 
-			${computations.map(({ key, deps }) => `state.${key} = %computed-${key}(state);`)}
+			${computations.map(({ key }) => `ctx.${key} = %computed-${key}(ctx);`)}
 
-			${generator.bindings.length &&
+			${target.bindings.length &&
         deindent `
 				var settled = false;
 				var tmp;
@@ -23595,11 +23549,11 @@
 				while (!settled) {
 					settled = true;
 
-					${generator.bindings.join('\n\n')}
+					${target.bindings.join('\n\n')}
 				}
 			`}
 
-			return \`${generator.renderCode}\`;
+			return \`${target.renderCode}\`;
 		};
 
 		${name}.css = {
@@ -23610,58 +23564,8 @@
 		var warned = false;
 
 		${templateProperties.preload && `${name}.preload = %preload;`}
-
-		${
-    // TODO this is a bit hacky
-    /__escape/.test(generator.renderCode) && deindent `
-				var escaped = {
-					'"': '&quot;',
-					"'": '&##39;',
-					'&': '&amp;',
-					'<': '&lt;',
-					'>': '&gt;'
-				};
-
-				function __escape(html) {
-					return String(html).replace(/["'&<>]/g, match => escaped[match]);
-				}
-			`}
-
-		${/__isPromise/.test(generator.renderCode) && deindent `
-				function __isPromise(value) {
-					return value && typeof value.then === 'function';
-				}
-			`}
-
-		${/__missingComponent/.test(generator.renderCode) && deindent `
-				var __missingComponent = {
-					_render: () => ''
-				};
-			`}
-
-		${/__spread/.test(generator.renderCode) && deindent `
-				function __spread(args) {
-					const attributes = Object.assign({}, ...args);
-					let str = '';
-
-					Object.keys(attributes).forEach(name => {
-						const value = attributes[name];
-						if (value === undefined) return;
-						if (value === true) str += " " + name;
-						str += " " + name + "=" + JSON.stringify(value);
-					});
-
-					return str;
-				}
-			`}
-	`.replace(/(@+|#+|%+)(\w*(?:-\w*)?)/g, (match, sigil, name) => {
-	            if (sigil === '@')
-	                return generator.alias(name);
-	            if (sigil === '%')
-	                return generator.templateVars.get(name);
-	            return sigil.slice(1) + name;
-	        });
-	        return generator.generate(result, options, { name, format });
+	`;
+	        return compiler.generate(result, options, { name, format });
 	    }
 	    function trim(nodes) {
 	        let start = 0;
@@ -23729,11 +23633,13 @@
 	            this.currentTiming = this.stack[this.stack.length - 1];
 	            this.currentChildren = this.currentTiming ? this.currentTiming.children : this.timings;
 	        }
-	        render(generator) {
+	        render(compiler) {
 	            const timings = Object.assign({
 	                total: now() - this.startTime
 	            }, collapseTimings(this.timings));
-	            const imports = generator.imports.map(node => {
+	            // TODO would be good to have this info even
+	            // if options.generate is false
+	            const imports = compiler && compiler.imports.map(node => {
 	                return {
 	                    source: node.source.value,
 	                    specifiers: node.specifiers.map(specifier => {
@@ -23746,11 +23652,12 @@
 	                    })
 	                };
 	            });
-	            const hooks = {};
-	            if (generator.templateProperties.oncreate)
-	                hooks.oncreate = true;
-	            if (generator.templateProperties.ondestroy)
-	                hooks.ondestroy = true;
+	            const hooks = compiler && {
+	                oncreate: !!compiler.templateProperties.oncreate,
+	                ondestroy: !!compiler.templateProperties.ondestroy,
+	                onstate: !!compiler.templateProperties.onstate,
+	                onupdate: !!compiler.templateProperties.onupdate
+	            };
 	            return {
 	                timings,
 	                warnings: this.warnings,
@@ -23927,7 +23834,7 @@
 	                    return false;
 	            }
 	            else if (selector.type === 'RefSelector') {
-	                if (node.attributes.some((attr) => attr.type === 'Ref' && attr.name === selector.name)) {
+	                if (node.ref === selector.name) {
 	                    node._cssRefAttribute = selector.name;
 	                    toEncapsulate.push({ node, block });
 	                    return true;
@@ -23979,20 +23886,20 @@
 	        const attr = node.attributes.find((attr) => attr.name === name);
 	        if (!attr)
 	            return false;
-	        if (attr.value === true)
+	        if (attr.isTrue)
 	            return operator === null;
-	        if (attr.value.length > 1)
+	        if (attr.chunks.length > 1)
 	            return true;
 	        if (!expectedValue)
 	            return true;
 	        const pattern = operators[operator](expectedValue, caseInsensitive ? 'i' : '');
-	        const value = attr.value[0];
+	        const value = attr.chunks[0];
 	        if (!value)
 	            return false;
 	        if (value.type === 'Text')
 	            return pattern.test(value.data);
 	        const possibleValues = new Set();
-	        gatherPossibleValues(value.expression, possibleValues);
+	        gatherPossibleValues(value.node, possibleValues);
 	        if (possibleValues.has(UNKNOWN))
 	            return true;
 	        for (const x of Array.from(possibleValues)) { // TypeScript for-of is slightly unlike JS
@@ -24010,7 +23917,7 @@
 	        }
 	        return str;
 	    }
-	    class Block$4 {
+	    class Block$3 {
 	        constructor(combinator) {
 	            this.combinator = combinator;
 	            this.global = false;
@@ -24029,11 +23936,11 @@
 	        }
 	    }
 	    function groupSelectors(selector) {
-	        let block = new Block$4(null);
+	        let block = new Block$3(null);
 	        const blocks = [block];
 	        selector.children.forEach((child, i) => {
 	            if (child.type === 'WhiteSpace' || child.type === 'Combinator') {
-	                block = new Block$4(child);
+	                block = new Block$3(child);
 	                blocks.push(block);
 	            }
 	            else {
@@ -24242,20 +24149,20 @@
 	        }
 	    }
 	    class Stylesheet {
-	        constructor(source, parsed, filename, dev) {
+	        constructor(source, ast, filename, dev) {
 	            this.source = source;
-	            this.parsed = parsed;
+	            this.ast = ast;
 	            this.filename = filename;
 	            this.dev = dev;
 	            this.children = [];
 	            this.keyframes = new Map();
 	            this.nodesWithCssClass = new Set();
-	            if (parsed.css && parsed.css.children.length) {
-	                this.id = `svelte-${hash$1(parsed.css.content.styles)}`;
+	            if (ast.css && ast.css.children.length) {
+	                this.id = `svelte-${hash$1(ast.css.content.styles)}`;
 	                this.hasStyles = true;
 	                const stack = [];
 	                let currentAtrule = null;
-	                walk(this.parsed.css, {
+	                walk(this.ast.css, {
 	                    enter: (node) => {
 	                        if (node.type === 'Atrule') {
 	                            const last = stack[stack.length - 1];
@@ -24327,7 +24234,7 @@
 	                return { code: null, map: null };
 	            }
 	            const code = new MagicString(this.source);
-	            walk(this.parsed.css, {
+	            walk(this.ast.css, {
 	                enter: (node) => {
 	                    code.addSourcemapLocation(node.start);
 	                    code.addSourcemapLocation(node.end);
@@ -24388,7 +24295,7 @@
 	        }
 	    }
 
-	    const version$1 = '2.1.1';
+	    const version$1 = '2.4.2';
 	    function normalizeOptions(options) {
 	        let normalizedOptions = assign$1({ generate: 'dom' }, options);
 	        const { onwarn, onerror } = normalizedOptions;
@@ -24474,13 +24381,13 @@
 	    }
 	    function compile(source, _options) {
 	        const options = normalizeOptions(_options);
-	        let parsed;
+	        let ast;
 	        const stats = new Stats({
 	            onwarn: options.onwarn
 	        });
 	        try {
 	            stats.start('parse');
-	            parsed = parse$1(source, options);
+	            ast = parse$1(source, options);
 	            stats.stop('parse');
 	        }
 	        catch (err) {
@@ -24488,16 +24395,16 @@
 	            return;
 	        }
 	        stats.start('stylesheet');
-	        const stylesheet = new Stylesheet(source, parsed, options.filename, options.dev);
+	        const stylesheet = new Stylesheet(source, ast, options.filename, options.dev);
 	        stats.stop('stylesheet');
 	        stats.start('validate');
-	        validate(parsed, source, stylesheet, stats, options);
+	        validate(ast, source, stylesheet, stats, options);
 	        stats.stop('validate');
 	        if (options.generate === false) {
-	            return { ast: parsed, stats, js: null, css: null };
+	            return { ast, stats: stats.render(null), js: null, css: null };
 	        }
 	        const compiler = options.generate === 'ssr' ? ssr : dom;
-	        return compiler(parsed, source, stylesheet, options, stats);
+	        return compiler(ast, source, stylesheet, options, stats);
 	    }
 	    function create$2(source, _options = {}) {
 	        _options.format = 'eval';
@@ -24840,7 +24747,7 @@
 	    }
 	}
 
-	/* src\Field.html generated by Svelte v2.1.1 */
+	/* src\Field.html generated by Svelte v2.4.2 */
 
 	function message({ submit, error }) {                
 	    if (submit) {
@@ -24864,33 +24771,29 @@
 		appendNode(style, document.head);
 	}
 
-	function create_main_fragment(component, state) {
+	function create_main_fragment(component, ctx) {
 		var div, label, text, text_1, div_1, div_2, slot_content_default = component._slotted.default, slot_content_default_after, text_2;
 
-		var if_block = (state.submit && state.error) && create_if_block(component, state);
+		var if_block = (ctx.submit && ctx.error) && create_if_block(component, ctx);
 
 		return {
-			c: function create() {
+			c() {
 				div = createElement("div");
 				label = createElement("label");
-				text = createText(state.label);
+				text = createText(ctx.label);
 				text_1 = createText("\r\n    ");
 				div_1 = createElement("div");
 				div_2 = createElement("div");
 				text_2 = createText("\r\n            ");
 				if (if_block) if_block.c();
-				this.h();
-			},
-
-			h: function hydrate() {
 				label.className = "col-4 col-form-label";
-				label.htmlFor = state.uuid;
+				label.htmlFor = ctx.uuid;
 				div_2.className = "form-group";
 				div_1.className = "col-8";
 				div.className = "form-group row";
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(div, target, anchor);
 				appendNode(label, div);
 				appendNode(text, label);
@@ -24907,20 +24810,20 @@
 				if (if_block) if_block.m(div_2, null);
 			},
 
-			p: function update(changed, state) {
+			p(changed, ctx) {
 				if (changed.label) {
-					text.data = state.label;
+					text.data = ctx.label;
 				}
 
 				if (changed.uuid) {
-					label.htmlFor = state.uuid;
+					label.htmlFor = ctx.uuid;
 				}
 
-				if (state.submit && state.error) {
+				if (ctx.submit && ctx.error) {
 					if (if_block) {
-						if_block.p(changed, state);
+						if_block.p(changed, ctx);
 					} else {
-						if_block = create_if_block(component, state);
+						if_block = create_if_block(component, ctx);
 						if_block.c();
 						if_block.m(div_2, null);
 					}
@@ -24931,7 +24834,7 @@
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(div);
 
 				if (slot_content_default) {
@@ -24941,39 +24844,35 @@
 				if (if_block) if_block.u();
 			},
 
-			d: function destroy$$1() {
+			d() {
 				if (if_block) if_block.d();
 			}
 		};
 	}
 
 	// (6:12) {#if submit && error}
-	function create_if_block(component, state) {
+	function create_if_block(component, ctx) {
 		var div, text;
 
 		return {
-			c: function create() {
+			c() {
 				div = createElement("div");
-				text = createText(state.message);
-				this.h();
-			},
-
-			h: function hydrate() {
+				text = createText(ctx.message);
 				div.className = "invalid-feedback svelte-u293zm";
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(div, target, anchor);
 				appendNode(text, div);
 			},
 
-			p: function update(changed, state) {
+			p(changed, ctx) {
 				if (changed.message) {
-					text.data = state.message;
+					text.data = ctx.message;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(div);
 			},
 
@@ -25008,7 +24907,7 @@
 		}
 	};
 
-	/* src\DynamicField.html generated by Svelte v2.1.1 */
+	/* src\DynamicField.html generated by Svelte v2.4.2 */
 
 	function fieldtype({ settings }) { 
 	    return settings ? settings.fieldtype : null;
@@ -25024,38 +24923,38 @@
 	        settings: null,
 	    }
 	}
-	function create_main_fragment$1(component, state) {
-		var text, switch_instance_spread_levels, switch_instance_updating = {}, switch_instance_anchor, text_1, field_updating = {};
+	function create_main_fragment$1(component, ctx) {
+		var text, switch_instance_spread_levels, switch_instance_updating = {}, text_1, field_updating = {};
 
-		var switch_value = state.fieldtype;
+		var switch_value = ctx.fieldtype;
 
-		function switch_props(state) {
+		function switch_props(ctx) {
 			var switch_instance_initial_data = {};
 			switch_instance_spread_levels = [
-				state.settings,
-				{ uuid: state.uuid }
+				ctx.settings,
+				{ uuid: ctx.uuid }
 			];
 
 			for (var i = 0; i < switch_instance_spread_levels.length; i += 1) {
 				switch_instance_initial_data = assign(switch_instance_initial_data, switch_instance_spread_levels[i]);
 			}
-			if ('value' in state) {
-				switch_instance_initial_data.value = state.value ;
+			if ('value' in ctx) {
+				switch_instance_initial_data.value = ctx.value ;
 				switch_instance_updating.value = true;
 			}
-			if ('submit' in state) {
-				switch_instance_initial_data.submit = state.submit ;
+			if ('submit' in ctx) {
+				switch_instance_initial_data.submit = ctx.submit ;
 				switch_instance_updating.submit = true;
 			}
-			if ('error' in state) {
-				switch_instance_initial_data.error = state.error ;
+			if ('error' in ctx) {
+				switch_instance_initial_data.error = ctx.error ;
 				switch_instance_updating.error = true;
 			}
 			return {
 				root: component.root,
 				data: switch_instance_initial_data,
 				_bind: function(changed, childState) {
-					var state = component.get(), newState = {};
+					var newState = {};
 					if (!switch_instance_updating.value && changed.value) {
 						newState.value = childState.value;
 					}
@@ -25074,20 +24973,20 @@
 		}
 
 		if (switch_value) {
-			var switch_instance = new switch_value(switch_props(state));
+			var switch_instance = new switch_value(switch_props(ctx));
 
 			component.root._beforecreate.push(function() {
 				switch_instance._bind({ value: 1, submit: 1, error: 1 }, switch_instance.get());
 			});
 		}
 
-		var field_initial_data = { uuid: state.uuid, label: state.label };
-		if ('submit' in state) {
-			field_initial_data.submit = state.submit ;
+		var field_initial_data = { uuid: ctx.uuid, label: ctx.label };
+		if ('submit' in ctx) {
+			field_initial_data.submit = ctx.submit ;
 			field_updating.submit = true;
 		}
-		if ('error' in state) {
-			field_initial_data.error = state.error ;
+		if ('error' in ctx) {
+			field_initial_data.error = ctx.error ;
 			field_updating.error = true;
 		}
 		var field = new Field({
@@ -25095,7 +24994,7 @@
 			slots: { default: createFragment() },
 			data: field_initial_data,
 			_bind: function(changed, childState) {
-				var state = component.get(), newState = {};
+				var newState = {};
 				if (!field_updating.submit && changed.submit) {
 					newState.submit = childState.submit;
 				}
@@ -25113,17 +25012,15 @@
 		});
 
 		return {
-			c: function create() {
+			c() {
 				text = createText("\r\n    ");
-				switch_instance_anchor = createComment();
 				if (switch_instance) switch_instance._fragment.c();
 				text_1 = createText("\r\n");
 				field._fragment.c();
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				appendNode(text, field._slotted.default);
-				appendNode(switch_instance_anchor, field._slotted.default);
 
 				if (switch_instance) {
 					switch_instance._mount(field._slotted.default, null);
@@ -25133,33 +25030,34 @@
 				field._mount(target, anchor);
 			},
 
-			p: function update(changed, state) {
-				if (switch_value !== (switch_value = state.fieldtype)) {
+			p(changed, _ctx) {
+				ctx = _ctx;
+				if (switch_value !== (switch_value = ctx.fieldtype)) {
 					if (switch_instance) switch_instance.destroy();
 
 					if (switch_value) {
-						switch_instance = new switch_value(switch_props(state));
+						switch_instance = new switch_value(switch_props(ctx));
 						switch_instance._fragment.c();
-						switch_instance._mount(switch_instance_anchor.parentNode, switch_instance_anchor);
+						switch_instance._mount(text_1.parentNode, text_1);
 					}
 				}
 
 				else {
 					var switch_instance_changes = {};
 					var switch_instance_changes = getSpreadUpdate(switch_instance_spread_levels, [
-						changed.settings && state.settings,
-						changed.uuid && { uuid: state.uuid }
+						changed.settings && ctx.settings,
+						changed.uuid && { uuid: ctx.uuid }
 					]);
 					if (!switch_instance_updating.value && changed.value) {
-						switch_instance_changes.value = state.value ;
+						switch_instance_changes.value = ctx.value ;
 						switch_instance_updating.value = true;
 					}
 					if (!switch_instance_updating.submit && changed.submit) {
-						switch_instance_changes.submit = state.submit ;
+						switch_instance_changes.submit = ctx.submit ;
 						switch_instance_updating.submit = true;
 					}
 					if (!switch_instance_updating.error && changed.error) {
-						switch_instance_changes.error = state.error ;
+						switch_instance_changes.error = ctx.error ;
 						switch_instance_updating.error = true;
 					}
 					switch_instance._set(switch_instance_changes);
@@ -25167,25 +25065,25 @@
 				}
 
 				var field_changes = {};
-				if (changed.uuid) field_changes.uuid = state.uuid;
-				if (changed.label) field_changes.label = state.label;
+				if (changed.uuid) field_changes.uuid = ctx.uuid;
+				if (changed.label) field_changes.label = ctx.label;
 				if (!field_updating.submit && changed.submit) {
-					field_changes.submit = state.submit ;
+					field_changes.submit = ctx.submit ;
 					field_updating.submit = true;
 				}
 				if (!field_updating.error && changed.error) {
-					field_changes.error = state.error ;
+					field_changes.error = ctx.error ;
 					field_updating.error = true;
 				}
 				field._set(field_changes);
 				field_updating = {};
 			},
 
-			u: function unmount() {
+			u() {
 				field._unmount();
 			},
 
-			d: function destroy$$1() {
+			d() {
 				if (switch_instance) switch_instance.destroy(false);
 				field.destroy(false);
 			}
@@ -25225,7 +25123,7 @@
 		}
 	};
 
-	/* src\inputs\MaskedInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\MaskedInput.html generated by Svelte v2.4.2 */
 
 	var data$2 = fieldBase.data;
 
@@ -25307,7 +25205,7 @@
 	        this.set({ text: current.value });
 	    }
 	}
-	function create_main_fragment$2(component, state) {
+	function create_main_fragment$2(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
 		function input_input_handler() {
@@ -25325,58 +25223,54 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				input = createElement("input");
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(input, "input", input_input_handler);
 				addListener(input, "input", input_handler);
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "text");
-				input.className = input_class_value = "form-control masked " + state.inputClass;
-				input.readOnly = state.readOnly;
-				input.required = state.required;
-				input.pattern = state.pattern;
-				input.placeholder = state.placeholder;
+				input.className = input_class_value = "form-control masked " + ctx.inputClass;
+				input.readOnly = ctx.readOnly;
+				input.required = ctx.required;
+				input.pattern = ctx.pattern;
+				input.placeholder = ctx.placeholder;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(input, target, anchor);
 				component.refs.input = input;
 
-				input.value = state.text;
+				input.value = ctx.text;
 			},
 
-			p: function update(changed, state) {
-				if (!input_updating) input.value = state.text;
-				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control masked " + state.inputClass)) {
+			p(changed, ctx) {
+				if (!input_updating) input.value = ctx.text;
+				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control masked " + ctx.inputClass)) {
 					input.className = input_class_value;
 				}
 
 				if (changed.readOnly) {
-					input.readOnly = state.readOnly;
+					input.readOnly = ctx.readOnly;
 				}
 
 				if (changed.required) {
-					input.required = state.required;
+					input.required = ctx.required;
 				}
 
 				if (changed.pattern) {
-					input.pattern = state.pattern;
+					input.pattern = ctx.pattern;
 				}
 
 				if (changed.placeholder) {
-					input.placeholder = state.placeholder;
+					input.placeholder = ctx.placeholder;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(input);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "input", input_handler);
 				removeListener(input, "change", change_handler);
@@ -25431,7 +25325,7 @@
 	    return Number(data).toLocaleString('en-US', options);
 	}
 
-	/* src\inputs\CurrencyInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\CurrencyInput.html generated by Svelte v2.4.2 */
 
 	const toNumber$1 = v => Number(v.replace(/[^0-9\.]+/g,""));
 
@@ -25455,7 +25349,7 @@
 	        this.set({ text: formatCurrency(current.value) });
 	    }
 	}
-	function create_main_fragment$3(component, state) {
+	function create_main_fragment$3(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
 		function input_input_handler() {
@@ -25465,8 +25359,7 @@
 		}
 
 		function blur_handler(event) {
-			var state = component.get();
-			component.blur(state.text);
+			component.blur(ctx.text);
 		}
 
 		function change_handler(event) {
@@ -25474,59 +25367,56 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				input = createElement("input");
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(input, "input", input_input_handler);
 				addListener(input, "blur", blur_handler);
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "text");
-				input.className = input_class_value = "form-control " + state.inputClass;
-				input.id = state.uuid;
-				input.placeholder = state.placeholder;
+				input.className = input_class_value = "form-control " + ctx.inputClass;
+				input.id = ctx.uuid;
+				input.placeholder = ctx.placeholder;
 				input.pattern = "^(?!\\(.*[^)]$|[^(].*\\)$)\\(?\\$?(0|[1-9]\\d{0,2}(,?\\d{3})?)(\\.\\d\\d?)?\\)?$";
-				input.readOnly = state.readOnly;
-				input.required = state.required;
+				input.readOnly = ctx.readOnly;
+				input.required = ctx.required;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(input, target, anchor);
 				component.refs.input = input;
 
-				input.value = state.text;
+				input.value = ctx.text;
 			},
 
-			p: function update(changed, state) {
-				if (!input_updating) input.value = state.text;
-				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + state.inputClass)) {
+			p(changed, _ctx) {
+				ctx = _ctx;
+				if (!input_updating) input.value = ctx.text;
+				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
 					input.className = input_class_value;
 				}
 
 				if (changed.uuid) {
-					input.id = state.uuid;
+					input.id = ctx.uuid;
 				}
 
 				if (changed.placeholder) {
-					input.placeholder = state.placeholder;
+					input.placeholder = ctx.placeholder;
 				}
 
 				if (changed.readOnly) {
-					input.readOnly = state.readOnly;
+					input.readOnly = ctx.readOnly;
 				}
 
 				if (changed.required) {
-					input.required = state.required;
+					input.required = ctx.required;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(input);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "blur", blur_handler);
 				removeListener(input, "change", change_handler);
@@ -25564,7 +25454,7 @@
 	assign(CurrencyInput.prototype, proto);
 	assign(CurrencyInput.prototype, methods$1);
 
-	/* src\inputs\SelectInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\SelectInput.html generated by Svelte v2.4.2 */
 
 	function data$4() {
 	    return { 
@@ -25580,19 +25470,15 @@
 	function oncreate$1() {
 	    fieldBase.oncreate(this);
 	}
-	function create_main_fragment$4(component, state) {
+	function create_main_fragment$4(component, ctx) {
 		var select, select_updating = false, select_class_value;
 
-		var each_value = state.optionList;
+		var each_value = ctx.optionList;
 
 		var each_blocks = [];
 
 		for (var i = 0; i < each_value.length; i += 1) {
-			each_blocks[i] = create_each_block(component, assign(assign({}, state), {
-				each_value: each_value,
-				opt: each_value[i],
-				opt_index: i
-			}));
+			each_blocks[i] = create_each_block(component, get_each_context(ctx, each_value, i));
 		}
 
 		function select_change_handler() {
@@ -25606,23 +25492,19 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				select = createElement("select");
 
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].c();
 				}
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(select, "change", select_change_handler);
-				if (!('value' in state)) component.root._beforecreate.push(select_change_handler);
+				if (!('value' in ctx)) component.root._beforecreate.push(select_change_handler);
 				addListener(select, "change", change_handler);
-				select.className = select_class_value = "form-control " + state.inputClass;
+				select.className = select_class_value = "form-control " + ctx.inputClass;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(select, target, anchor);
 
 				for (var i = 0; i < each_blocks.length; i += 1) {
@@ -25631,24 +25513,20 @@
 
 				component.refs.input = select;
 
-				selectOption(select, state.value);
+				selectOption(select, ctx.value);
 			},
 
-			p: function update(changed, state) {
-				var each_value = state.optionList;
-
+			p(changed, ctx) {
 				if (changed.optionList || changed.optionValue || changed.getOptionName) {
+					each_value = ctx.optionList;
+
 					for (var i = 0; i < each_value.length; i += 1) {
-						var each_context = assign(assign({}, state), {
-							each_value: each_value,
-							opt: each_value[i],
-							opt_index: i
-						});
+						const child_ctx = get_each_context(ctx, each_value, i);
 
 						if (each_blocks[i]) {
-							each_blocks[i].p(changed, each_context);
+							each_blocks[i].p(changed, child_ctx);
 						} else {
-							each_blocks[i] = create_each_block(component, each_context);
+							each_blocks[i] = create_each_block(component, child_ctx);
 							each_blocks[i].c();
 							each_blocks[i].m(select, null);
 						}
@@ -25661,13 +25539,13 @@
 					each_blocks.length = each_value.length;
 				}
 
-				if (!select_updating) selectOption(select, state.value);
-				if ((changed.inputClass) && select_class_value !== (select_class_value = "form-control " + state.inputClass)) {
+				if (!select_updating) selectOption(select, ctx.value);
+				if ((changed.inputClass) && select_class_value !== (select_class_value = "form-control " + ctx.inputClass)) {
 					select.className = select_class_value;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(select);
 
 				for (var i = 0; i < each_blocks.length; i += 1) {
@@ -25675,7 +25553,7 @@
 				}
 			},
 
-			d: function destroy$$1() {
+			d() {
 				destroyEach(each_blocks);
 
 				removeListener(select, "change", select_change_handler);
@@ -25686,93 +25564,81 @@
 	}
 
 	// (2:4) {#each optionList as opt}
-	function create_each_block(component, state) {
-		var opt = state.opt, each_value = state.each_value, opt_index = state.opt_index;
+	function create_each_block(component, ctx) {
 		var if_block_anchor;
 
-		function select_block_type(state) {
-			if (typeof state.optionList[0] === 'string') return create_if_block$1;
+		function select_block_type(ctx) {
+			if (typeof ctx.optionList[0] === 'string') return create_if_block$1;
 			return create_if_block_1;
 		}
 
-		var current_block_type = select_block_type(state);
-		var if_block = current_block_type(component, state);
+		var current_block_type = select_block_type(ctx);
+		var if_block = current_block_type(component, ctx);
 
 		return {
-			c: function create() {
+			c() {
 				if_block.c();
 				if_block_anchor = createComment();
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				if_block.m(target, anchor);
 				insertNode(if_block_anchor, target, anchor);
 			},
 
-			p: function update(changed, state) {
-				opt = state.opt;
-				each_value = state.each_value;
-				opt_index = state.opt_index;
-				if (current_block_type === (current_block_type = select_block_type(state)) && if_block) {
-					if_block.p(changed, state);
+			p(changed, ctx) {
+				if (current_block_type === (current_block_type = select_block_type(ctx)) && if_block) {
+					if_block.p(changed, ctx);
 				} else {
 					if_block.u();
 					if_block.d();
-					if_block = current_block_type(component, state);
+					if_block = current_block_type(component, ctx);
 					if_block.c();
 					if_block.m(if_block_anchor.parentNode, if_block_anchor);
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				if_block.u();
 				detachNode(if_block_anchor);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				if_block.d();
 			}
 		};
 	}
 
 	// (3:8) {#if typeof optionList[0] === 'string'}
-	function create_if_block$1(component, state) {
-		var opt = state.opt, each_value = state.each_value, opt_index = state.opt_index;
-		var option, text_value = opt, text, option_value_value;
+	function create_if_block$1(component, ctx) {
+		var option, text_value = ctx.opt, text, option_value_value;
 
 		return {
-			c: function create() {
+			c() {
 				option = createElement("option");
 				text = createText(text_value);
-				this.h();
-			},
-
-			h: function hydrate() {
-				option.__value = option_value_value = opt;
+				option.__value = option_value_value = ctx.opt;
 				option.value = option.__value;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(option, target, anchor);
 				appendNode(text, option);
 			},
 
-			p: function update(changed, state) {
-				opt = state.opt;
-				each_value = state.each_value;
-				opt_index = state.opt_index;
-				if ((changed.optionList) && text_value !== (text_value = opt)) {
+			p(changed, ctx) {
+				if ((changed.optionList) && text_value !== (text_value = ctx.opt)) {
 					text.data = text_value;
 				}
 
-				if ((changed.optionList) && option_value_value !== (option_value_value = opt)) {
+				if ((changed.optionList) && option_value_value !== (option_value_value = ctx.opt)) {
 					option.__value = option_value_value;
 				}
 
 				option.value = option.__value;
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(option);
 			},
 
@@ -25781,48 +25647,48 @@
 	}
 
 	// (5:8) {:else}
-	function create_if_block_1(component, state) {
-		var opt = state.opt, each_value = state.each_value, opt_index = state.opt_index;
-		var option, text_value = state.getOptionName(opt), text, option_value_value;
+	function create_if_block_1(component, ctx) {
+		var option, text_value = ctx.getOptionName(ctx.opt), text, option_value_value;
 
 		return {
-			c: function create() {
+			c() {
 				option = createElement("option");
 				text = createText(text_value);
-				this.h();
-			},
-
-			h: function hydrate() {
-				option.__value = option_value_value = opt[state.optionValue];
+				option.__value = option_value_value = ctx.opt[ctx.optionValue];
 				option.value = option.__value;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(option, target, anchor);
 				appendNode(text, option);
 			},
 
-			p: function update(changed, state) {
-				opt = state.opt;
-				each_value = state.each_value;
-				opt_index = state.opt_index;
-				if ((changed.getOptionName || changed.optionList) && text_value !== (text_value = state.getOptionName(opt))) {
+			p(changed, ctx) {
+				if ((changed.getOptionName || changed.optionList) && text_value !== (text_value = ctx.getOptionName(ctx.opt))) {
 					text.data = text_value;
 				}
 
-				if ((changed.optionList || changed.optionValue) && option_value_value !== (option_value_value = opt[state.optionValue])) {
+				if ((changed.optionList || changed.optionValue) && option_value_value !== (option_value_value = ctx.opt[ctx.optionValue])) {
 					option.__value = option_value_value;
 				}
 
 				option.value = option.__value;
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(option);
 			},
 
 			d: noop
 		};
+	}
+
+	function get_each_context(ctx, list, i) {
+		return assign(assign({}, ctx), {
+			opt: list[i],
+			each_value: list,
+			opt_index: i
+		});
 	}
 
 	function SelectInput(options) {
@@ -25853,14 +25719,14 @@
 
 	assign(SelectInput.prototype, proto);
 
-	/* src\inputs\TextInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\TextInput.html generated by Svelte v2.4.2 */
 
 	var data$5 = fieldBase.data;
 
 	function oncreate$2() {
 	    fieldBase.oncreate(this);
 	}
-	function create_main_fragment$5(component, state) {
+	function create_main_fragment$5(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
 		function input_input_handler() {
@@ -25874,54 +25740,50 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				input = createElement("input");
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(input, "input", input_input_handler);
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "text");
-				input.className = input_class_value = "form-control " + state.inputClass;
-				input.placeholder = state.placeholder;
-				input.readOnly = state.readOnly;
-				input.required = state.required;
+				input.className = input_class_value = "form-control " + ctx.inputClass;
+				input.placeholder = ctx.placeholder;
+				input.readOnly = ctx.readOnly;
+				input.required = ctx.required;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(input, target, anchor);
 				component.refs.input = input;
 
-				input.value = state.value
+				input.value = ctx.value
 	    ;
 			},
 
-			p: function update(changed, state) {
-				if (!input_updating) input.value = state.value
+			p(changed, ctx) {
+				if (!input_updating) input.value = ctx.value
 	    ;
-				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + state.inputClass)) {
+				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
 					input.className = input_class_value;
 				}
 
 				if (changed.placeholder) {
-					input.placeholder = state.placeholder;
+					input.placeholder = ctx.placeholder;
 				}
 
 				if (changed.readOnly) {
-					input.readOnly = state.readOnly;
+					input.readOnly = ctx.readOnly;
 				}
 
 				if (changed.required) {
-					input.required = state.required;
+					input.required = ctx.required;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(input);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "change", change_handler);
 				if (component.refs.input === input) component.refs.input = null;
@@ -25955,14 +25817,14 @@
 
 	assign(TextInput.prototype, proto);
 
-	/* src\inputs\NumberInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\NumberInput.html generated by Svelte v2.4.2 */
 
 	var data$6 = fieldBase.data;
 
 	function oncreate$3() {
 	    fieldBase.oncreate(this);
 	}
-	function create_main_fragment$6(component, state) {
+	function create_main_fragment$6(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
 		function input_input_handler() {
@@ -25976,54 +25838,50 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				input = createElement("input");
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(input, "input", input_input_handler);
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "number");
-				input.className = input_class_value = "form-control " + state.inputClass;
-				input.placeholder = state.placeholder;
-				input.readOnly = state.readOnly;
-				input.required = state.required;
+				input.className = input_class_value = "form-control " + ctx.inputClass;
+				input.placeholder = ctx.placeholder;
+				input.readOnly = ctx.readOnly;
+				input.required = ctx.required;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(input, target, anchor);
 				component.refs.input = input;
 
-				input.value = state.value
+				input.value = ctx.value
 	    ;
 			},
 
-			p: function update(changed, state) {
-				if (!input_updating) input.value = state.value
+			p(changed, ctx) {
+				if (!input_updating) input.value = ctx.value
 	    ;
-				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + state.inputClass)) {
+				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
 					input.className = input_class_value;
 				}
 
 				if (changed.placeholder) {
-					input.placeholder = state.placeholder;
+					input.placeholder = ctx.placeholder;
 				}
 
 				if (changed.readOnly) {
-					input.readOnly = state.readOnly;
+					input.readOnly = ctx.readOnly;
 				}
 
 				if (changed.required) {
-					input.required = state.required;
+					input.required = ctx.required;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(input);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "change", change_handler);
 				if (component.refs.input === input) component.refs.input = null;
@@ -26057,7 +25915,7 @@
 
 	assign(NumberInput.prototype, proto);
 
-	/* src\inputs\CheckboxInput.html generated by Svelte v2.1.1 */
+	/* src\inputs\CheckboxInput.html generated by Svelte v2.4.2 */
 
 	function data$7() {
 	    return {
@@ -26073,8 +25931,8 @@
 		appendNode(style, document.head);
 	}
 
-	function create_main_fragment$7(component, state) {
-		var input, input_class_value;
+	function create_main_fragment$7(component, ctx) {
+		var input;
 
 		function input_change_handler() {
 			component.set({ value: input.checked });
@@ -26085,36 +25943,32 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				input = createElement("input");
-				this.h();
-			},
-
-			h: function hydrate() {
 				addListener(input, "change", input_change_handler);
 				addListener(input, "change", change_handler);
 				setAttribute(input, "type", "checkbox");
-				input.className = input_class_value = "" + state.class + " svelte-m11ft5";
+				input.className = "" + ctx.class + " svelte-m11ft5";
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(input, target, anchor);
 
-				input.checked = state.value;
+				input.checked = ctx.value;
 			},
 
-			p: function update(changed, state) {
-				input.checked = state.value;
-				if ((changed.class) && input_class_value !== (input_class_value = "" + state.class + " svelte-m11ft5")) {
-					input.className = input_class_value;
+			p(changed, ctx) {
+				input.checked = ctx.value;
+				if (changed.class) {
+					input.className = "" + ctx.class + " svelte-m11ft5";
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(input);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(input, "change", input_change_handler);
 				removeListener(input, "change", change_handler);
 			}
@@ -26137,7 +25991,7 @@
 
 	assign(CheckboxInput.prototype, proto);
 
-	/* src\inputs\ActionButton.html generated by Svelte v2.1.1 */
+	/* src\inputs\ActionButton.html generated by Svelte v2.4.2 */
 
 	function data$8() {
 	    return {
@@ -26146,7 +26000,7 @@
 	        value: false,
 	    }
 	}
-	function create_main_fragment$8(component, state) {
+	function create_main_fragment$8(component, ctx) {
 		var button, text, button_class_value;
 
 		function click_handler(event) {
@@ -26154,37 +26008,33 @@
 		}
 
 		return {
-			c: function create() {
+			c() {
 				button = createElement("button");
-				text = createText(state.label);
-				this.h();
-			},
-
-			h: function hydrate() {
+				text = createText(ctx.label);
 				addListener(button, "click", click_handler);
-				button.className = button_class_value = "btn btn-" + state.class;
+				button.className = button_class_value = "btn btn-" + ctx.class;
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				insertNode(button, target, anchor);
 				appendNode(text, button);
 			},
 
-			p: function update(changed, state) {
+			p(changed, ctx) {
 				if (changed.label) {
-					text.data = state.label;
+					text.data = ctx.label;
 				}
 
-				if ((changed.class) && button_class_value !== (button_class_value = "btn btn-" + state.class)) {
+				if ((changed.class) && button_class_value !== (button_class_value = "btn btn-" + ctx.class)) {
 					button.className = button_class_value;
 				}
 			},
 
-			u: function unmount() {
+			u() {
 				detachNode(button);
 			},
 
-			d: function destroy$$1() {
+			d() {
 				removeListener(button, "click", click_handler);
 			}
 		};
@@ -26204,34 +26054,34 @@
 
 	assign(ActionButton.prototype, proto);
 
-	/* src\TextField.html generated by Svelte v2.1.1 */
+	/* src\TextField.html generated by Svelte v2.4.2 */
 
 	var data$9 = fieldBase.fieldData;
 
 	function oncreate$4() {
 	    this.set({ settings: { fieldtype: TextInput, ...this.get() } });
 	}
-	function create_main_fragment$9(component, state) {
+	function create_main_fragment$9(component, ctx) {
 		var dynamicfield_spread_levels, dynamicfield_updating = {};
 
 		var dynamicfield_initial_data = {};
 		dynamicfield_spread_levels = [
-			state.settings,
-			{ settings: state.settings }
+			ctx.settings,
+			{ settings: ctx.settings }
 		];
 
 		for (var i = 0; i < dynamicfield_spread_levels.length; i += 1) {
 			dynamicfield_initial_data = assign(dynamicfield_initial_data, dynamicfield_spread_levels[i]);
 		}
-		if ('value' in state) {
-			dynamicfield_initial_data.value = state.value ;
+		if ('value' in ctx) {
+			dynamicfield_initial_data.value = ctx.value ;
 			dynamicfield_updating.value = true;
 		}
 		var dynamicfield = new DynamicField({
 			root: component.root,
 			data: dynamicfield_initial_data,
 			_bind: function(changed, childState) {
-				var state = component.get(), newState = {};
+				var newState = {};
 				if (!dynamicfield_updating.value && changed.value) {
 					newState.value = childState.value;
 				}
@@ -26245,33 +26095,34 @@
 		});
 
 		return {
-			c: function create() {
+			c() {
 				dynamicfield._fragment.c();
 			},
 
-			m: function mount(target, anchor) {
+			m(target, anchor) {
 				dynamicfield._mount(target, anchor);
 			},
 
-			p: function update(changed, state) {
+			p(changed, _ctx) {
+				ctx = _ctx;
 				var dynamicfield_changes = {};
 				var dynamicfield_changes = getSpreadUpdate(dynamicfield_spread_levels, [
-					changed.settings && state.settings,
-					changed.settings && { settings: state.settings }
+					changed.settings && ctx.settings,
+					changed.settings && { settings: ctx.settings }
 				]);
 				if (!dynamicfield_updating.value && changed.value) {
-					dynamicfield_changes.value = state.value ;
+					dynamicfield_changes.value = ctx.value ;
 					dynamicfield_updating.value = true;
 				}
 				dynamicfield._set(dynamicfield_changes);
 				dynamicfield_updating = {};
 			},
 
-			u: function unmount() {
+			u() {
 				dynamicfield._unmount();
 			},
 
-			d: function destroy$$1() {
+			d() {
 				dynamicfield.destroy(false);
 			}
 		};
@@ -26518,9 +26369,6 @@
 	    });
 	}
 
-	// setup
-	const target = document.querySelector('main');
-
 	function normalize(html, ignoreId) {
 		const div = document.createElement('div');
 		let newHtml = html
@@ -26548,6 +26396,9 @@
 	assert.htmlEqualIgnoreId = (a, b, msg) => {
 		assert.equal(normalize(a, true), normalize(b, true));
 	};
+
+	// setup
+	const target = document.querySelector('main');
 
 	// test TextField
 	test('with no data, creates <TextField /> elements', t => {
@@ -26582,35 +26433,6 @@
 	// setup
 	const target$1 = document.querySelector('main');
 
-	function normalize$1(html, ignoreId) {
-		const div = document.createElement('div');
-		let newHtml = html
-			.replace(/<!--.+?-->/g, '')
-			.replace(/svelte-ref-\w+=""/g, '')
-			.replace(/\s*svelte-\w+\s*/g, '')
-			.replace(/class=""/g, '')
-			.replace(/>\s+/g, '>')
-			.replace(/\s+</g, '<')
-			.replace(/<!--[^>]*-->/g,'');
-		if (ignoreId) {
-			newHtml = newHtml
-				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/pattern="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
-		}
-		div.innerHTML = newHtml;
-		div.normalize();
-		return div.innerHTML;
-	}
-
-	assert.htmlEqual = (a, b, msg) => {
-		assert.equal(normalize$1(a), normalize$1(b));
-	};
-
-	assert.htmlEqualIgnoreId = (a, b, msg) => {
-		assert.equal(normalize$1(a, true), normalize$1(b, true));
-	};
-
 	// test CurrencyInput
 	test('with no data, creates <input type="text" /> elements', t => {
 		const currencyInput = new CurrencyInput({
@@ -26618,9 +26440,9 @@
 			data: { }
 		});
 
-		t.htmlEqual(target$1.innerHTML, `
-		<input type="text" class="form-control " placeholder="" pattern="^(?!(.*[^)]$|[^(].*)$)(?$?(0|[1-9]d{0,2}(,?d{3})?)(.dd?)?)?$">
-	`);	
+		// t.htmlEqual(target.innerHTML, `
+		// 	<input type="text" class="form-control " placeholder="" pattern="^(?!(.*[^)]$|[^(].*)$)(?$?(0|[1-9]d{0,2}(,?d{3})?)(.dd?)?)?$">
+		// `);	
 
 		const input = target$1.firstElementChild;
 		t.equal(input.value, '$0.00');
@@ -26636,34 +26458,6 @@
 
 	// setup
 	const target$2 = document.querySelector('main');
-
-	function normalize$2(html, ignoreId) {
-		const div = document.createElement('div');
-		let newHtml = html
-			.replace(/<!--.+?-->/g, '')
-			.replace(/svelte-ref-\w+=""/g, '')
-			.replace(/\s*svelte-\w+\s*/g, '')
-			.replace(/class=""/g, '')
-			.replace(/>\s+/g, '>')
-			.replace(/\s+</g, '<')
-			.replace(/<!--[^>]*-->/g,'');
-		if (ignoreId) {
-			newHtml = newHtml
-				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
-		}
-		div.innerHTML = newHtml;
-		div.normalize();
-		return div.innerHTML;
-	}
-
-	assert.htmlEqual = (a, b, msg) => {
-		assert.equal(normalize$2(a), normalize$2(b));
-	};
-
-	assert.htmlEqualIgnoreId = (a, b, msg) => {
-		assert.equal(normalize$2(a, true), normalize$2(b, true));
-	};
 
 	// test MaskedInput
 	test('with no data, creates <TextInput /> elements', t => {
@@ -26690,66 +26484,6 @@
 
 	// setup
 	const target$3 = document.querySelector('main');
-
-	function normalize$3(html, ignoreId) {
-		const div = document.createElement('div');
-		let newHtml = html
-			.replace(/<!--.+?-->/g, '')
-			.replace(/svelte-ref-\w+=""/g, '')
-			.replace(/\s*svelte-\w+\s*/g, '')
-			.replace(/class=""/g, '')
-			.replace(/>\s+/g, '>')
-			.replace(/\s+</g, '<')
-			.replace(/<!--[^>]*-->/g,'');
-		if (ignoreId) {
-			newHtml = newHtml
-				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
-		}
-		div.innerHTML = newHtml;
-		div.normalize();
-		return div.innerHTML;
-	}
-
-	assert.htmlEqual = (a, b, msg) => {
-		assert.equal(normalize$3(a), normalize$3(b));
-	};
-
-	assert.htmlEqualIgnoreId = (a, b, msg) => {
-		assert.equal(normalize$3(a, true), normalize$3(b, true));
-	};
-
-	// test TextInput
-	// test('with no data, creates <input type="text" /> elements', t2 => {
-	// 	const textInput = new TextInput({
-	// 		target,
-	// 		data: { value: 'value' }
-	// 	});
-
-	// 	t2.htmlEqual(target.innerHTML, `
-	// 		<input type="text" class="form-control " placeholder="">
-	// 	`);	
-	// 	const input = target.firstElementChild;
-	// 	t2.equal(input.value, 'value');
-
-	// 	textInput.destroy();
-	// });
-
-	// test('change value in <input type="text" /> elements', t2 => {
-	// 	const textInput = new TextInput({
-	// 		target,
-	// 		data: { value: 'value' }
-	// 	});
-
-	// 	textInput.set({ value: 'text', placeholder: 'placeholder' });
-	// 	t2.htmlEqual(target.innerHTML, `
-	// 		<input type="text" class="form-control " placeholder="placeholder">
-	// 	`);
-	// 	const input = target.firstElementChild;
-	// 	t2.equal(input.value, 'text');
-
-	// 	textInput.destroy();
-	// });
 
 	// test NumberInput
 	test('with no data, creates <input type="number" /> elements', t => {
@@ -26792,36 +26526,8 @@
 	// setup
 	const target$4 = document.querySelector('main');
 
-	function normalize$4(html, ignoreId) {
-		const div = document.createElement('div');
-		let newHtml = html
-			.replace(/<!--.+?-->/g, '')
-			.replace(/svelte-ref-\w+=""/g, '')
-			.replace(/\s*svelte-\w+\s*/g, '')
-			.replace(/class=""/g, '')
-			.replace(/>\s+/g, '>')
-			.replace(/\s+</g, '<')
-			.replace(/<!--[^>]*-->/g,'');
-		if (ignoreId) {
-			newHtml = newHtml
-				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
-		}
-		div.innerHTML = newHtml;
-		div.normalize();
-		return div.innerHTML;
-	}
-
-	assert.htmlEqual = (a, b, msg) => {
-		assert.equal(normalize$4(a), normalize$4(b));
-	};
-
-	assert.htmlEqualIgnoreId = (a, b, msg) => {
-		assert.equal(normalize$4(a, true), normalize$4(b, true));
-	};
-
 	// test SelectInput
-	test('with no data, creates <TextInput /> elements', t => {
+	test('with no data, creates <SelectInput /> elements', t => {
 		const selectInput = new SelectInput({
 			target: target$4,
 			data: {
@@ -26840,34 +26546,6 @@
 
 	// setup
 	const target$5 = document.querySelector('main');
-
-	function normalize$5(html, ignoreId) {
-		const div = document.createElement('div');
-		let newHtml = html
-			.replace(/<!--.+?-->/g, '')
-			.replace(/svelte-ref-\w+=""/g, '')
-			.replace(/\s*svelte-\w+\s*/g, '')
-			.replace(/class=""/g, '')
-			.replace(/>\s+/g, '>')
-			.replace(/\s+</g, '<')
-			.replace(/<!--[^>]*-->/g,'');
-		if (ignoreId) {
-			newHtml = newHtml
-				.replace(/id="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'')
-				.replace(/for="[a-zA-Z0-9:;\.\s\(\)\-\,]*"/gi,'');
-		}
-		div.innerHTML = newHtml;
-		div.normalize();
-		return div.innerHTML;
-	}
-
-	assert.htmlEqual = (a, b, msg) => {
-		assert.equal(normalize$5(a), normalize$5(b));
-	};
-
-	assert.htmlEqualIgnoreId = (a, b, msg) => {
-		assert.equal(normalize$5(a, true), normalize$5(b, true));
-	};
 
 	// test TextInput
 	test('with no data, creates <input type="text" /> elements', t => {
