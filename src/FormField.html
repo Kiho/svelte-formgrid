@@ -1,6 +1,7 @@
-<Field {uuid} label="{fieldlabel}" bind:submit bind:error >
+<!-- <Field {uuid} label="{fieldlabel}" bind:submit bind:error >
     <svelte:component this="{ fieldtype }" {...settings} bind:value bind:submit bind:error {uuid} />
-</Field>
+</Field> -->
+<Field {settings} {fieldtype} bind:value />
 
 <script>
     import {
@@ -20,8 +21,8 @@
         data() {
             return { 
                 uuid: fieldBase.makeUniqueId(),
-                submit: false,
-                error: '',
+                // submit: false,
+                // error: '',
                 value: '',
                 settings: null
             }

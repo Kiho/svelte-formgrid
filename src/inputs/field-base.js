@@ -19,8 +19,8 @@ export default {
     data() {
         return Object.assign({}, intialData);
     },
-    fieldData() {
-        return Object.assign({}, {settings: null}, intialData);
+    fieldData(data) {
+        return Object.assign({}, { settings: null }, intialData, data);
     },
     oncreate(p) {
         const { uuid, settings } = p.get();
@@ -36,10 +36,7 @@ export default {
         };
         if (uuid) {
             element.setAttribute('id', uuid);
-        } 
-        // if (settings) {
-        //     this.mergeProps(p, settings);
-        // }
+        }
         p.set({ element });        
     },
     validate(p) { 

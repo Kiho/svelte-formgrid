@@ -21,8 +21,31 @@ test('with no data, creates <TextInput /> elements', t => {
 		<input type="text" class="form-control masked " pattern="\d{3}-\d{3}-\d{4}" placeholder="XXX-XXX-XXXX">
 	`);
 
-	const input = target.firstElementChild;
-	// t.equal(input.value,'10');
+	maskedInput.destroy();
+});
+
+// test MaskedInput
+// TODO - find out how I can test with event.
+test('detect invalid input with pattern', t => {
+	const maskedInput = new MaskedInput({
+		target,
+		data: {
+			value: '12345',
+            label: 'masked',
+            pattern: '^(\\d{5})', 
+			placeholder: 'XXXXX',
+		}
+    });
+
+    let input = target.querySelector('input');
+    	
+    t.equal(input.value, '12345');
+    t.equal(input.checkValidity(), true);
+
+    maskedInput.set({ value: '123456' });
+
+    t.equal(input.checkValidity(), false);
+
 	maskedInput.destroy();
 });
 

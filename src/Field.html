@@ -2,7 +2,7 @@
     <label class="col-4 col-form-label" for={uuid}>{label}</label>
     <div class="col-8">
         <div class="form-group">
-            <slot></slot>
+            <svelte:component this="{fieldtype}" {...settings} bind:value bind:submit bind:error {uuid} />
             {#if submit && error}
             <div class="invalid-feedback">
                 {message}
@@ -13,22 +13,26 @@
 </div>
 
 <script>
+    import fieldBase from './inputs/field-base';
+
     export default {
         data() {
             return { 
-                uuid: '',
-                label: '',
+                uuid: fieldBase.makeUniqueId(),
                 submit: false,
                 error: '',
+                settings: null,
+                fieldtype: null,
+                value: '',
             }
         },
         computed:{
-            message: ({ submit, error }) => {                
-                if (submit) {
-                    return error;
-                }
-                return '';
+            message: ({ submit, error }) => {
+                return submit ? error : '';
             },
+            label: ({ settings }) => { 
+                return settings ? settings.label : null;
+            }
         }
     }
 </script>

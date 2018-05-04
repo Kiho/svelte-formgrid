@@ -1,17 +1,16 @@
-<DynamicField {...settings} {settings} bind:value />
+<Field {settings} {fieldtype} bind:value />
 
 <script>
     import fieldBase from './inputs/field-base';
-    import DynamicField from './DynamicField.html';
     import { TextInput } from './inputs';
 
     export default {
         components: {
-            DynamicField
+            Field: './Field.html'
         },
-        data: fieldBase.fieldData,
+        data: () => fieldBase.fieldData({ fieldtype: TextInput }),
         oncreate() {
-            this.set({ settings: { fieldtype: TextInput, ...this.get() } });
+            this.set({ settings: this.get() });
         }, 
     }
 </script>

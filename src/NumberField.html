@@ -1,4 +1,4 @@
-<Field {uuid} {label} bind:submit bind:error >
+<!-- <Field {uuid} {label} bind:submit bind:error >
     <NumberInput {...settings} bind:value bind:submit bind:error />
 </Field>
 
@@ -16,5 +16,22 @@
         oncreate() {
             this.set({ settings: this.get(), uuid: fieldBase.makeUniqueId() });
         },
+    }
+</script> -->
+
+<Field {settings} {fieldtype} bind:value />
+
+<script>
+    import fieldBase from './inputs/field-base';
+    import { NumberInput } from './inputs';
+
+    export default {
+        components: {
+            Field: './Field.html'
+        },
+        data: () => fieldBase.fieldData({ fieldtype: NumberInput }),
+        oncreate() {
+            this.set({ settings: this.get() });
+        }, 
     }
 </script>

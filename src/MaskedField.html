@@ -1,20 +1,16 @@
-<Field {uuid} {label} bind:submit bind:error >
-    <MaskedInput {...settings} bind:value bind:submit bind:error />
-</Field>
+<Field {settings} {fieldtype} bind:value />
 
 <script>
-    import Field from './Field.html';
-    import MaskedInput from './inputs/MaskedInput.html';
     import fieldBase from './inputs/field-base';
+    import { MaskedInput } from './inputs';
 
     export default {
         components: {
-            Field,
-            MaskedInput
+            Field: './Field.html'
         },
-        data: fieldBase.fieldData,
+        data: () => fieldBase.fieldData({ fieldtype: MaskedInput }),
         oncreate() {
-            this.set({ settings: this.get(), uuid: fieldBase.makeUniqueId() });
-        },
+            this.set({ settings: this.get() });
+        }, 
     }
 </script>
