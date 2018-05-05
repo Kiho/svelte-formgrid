@@ -91,10 +91,11 @@ test('with no data, creates <MaskedField /> elements', t => {
     `);
     
 	const input = target.querySelector('input');
+	t.equal(maskedField.get().value, '1');
 	// TODO - this fails with masked field, need to check value & text
 	// t.equal(input.value, '1');
 
-	maskedField.set({ value: '3' }); 
+	maskedField.set({ value: '3' });
 	   	
     t.equal(input.value, '3');
     

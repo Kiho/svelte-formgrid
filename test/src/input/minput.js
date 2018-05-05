@@ -25,7 +25,6 @@ test('with no data, creates <TextInput /> elements', t => {
 });
 
 // test MaskedInput
-// TODO - find out how I can test with event.
 test('detect invalid input with pattern', t => {
 	const maskedInput = new MaskedInput({
 		target,
@@ -45,6 +44,29 @@ test('detect invalid input with pattern', t => {
     maskedInput.set({ value: '123456' });
 
     t.equal(input.checkValidity(), false);
+
+	maskedInput.destroy();
+});
+
+test('shourd not acccept input if not match with pattern', t => {
+	const maskedInput = new MaskedInput({
+		target,
+		data: {
+			value: '12345',
+            label: 'masked',
+            pattern: '^(\\d{5})', 
+			placeholder: 'XXXXX',
+		}
+    });
+
+    const input = target.querySelector('input');
+    	
+    t.equal(input.value, '12345');
+
+	input.value = '234567'; 
+	input.dispatchEvent(new Event('input'));
+
+    t.equal(input.value, '23456');
 
 	maskedInput.destroy();
 });
