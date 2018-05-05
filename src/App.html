@@ -86,6 +86,7 @@ export default {
     data() {
         return {
             index: 0,
+            rows: data,
             show: true,
             text: '12345',
             fielddata: [
@@ -180,9 +181,9 @@ export default {
         }
     },
     computed:{
-        item: ({ index }) => {
-            console.log('app - computed - data[index]', index, data[index]);
-            return data[index];
+        item: ({ index, rows }) => {
+            console.log('app - computed - data[index]', index, rows[index]);
+            return rows[index];
         },
     },
     methods: {
