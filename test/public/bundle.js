@@ -24435,7 +24435,7 @@
 	    Object.defineProperty(exports, '__esModule', { value: true });
 
 	})));
-
+	//# sourceMappingURL=svelte.js.map
 	});
 
 	unwrapExports(svelte);
@@ -26438,6 +26438,7 @@
 	        });
 	    });
 	}
+	//# sourceMappingURL=tape-modern.esm.js.map
 
 	function normalize(html, ignoreId) {
 		const div = document.createElement('div');
@@ -26614,6 +26615,7 @@
 	});
 
 	// test MaskedInput
+	// TODO - find out how I can test with event.
 	test('detect invalid input with pattern', t => {
 		const maskedInput = new MaskedInput({
 			target: target$2,
