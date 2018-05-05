@@ -1,9 +1,7 @@
 <div class="container-fluid">
     <TextField label="TextField" bind:value="text" placeholder="TextField" />
-    <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update ></DataGrid>
-    {#if show}     
-    <FormGrid columns={columndata} bind:item ref:form ></FormGrid>
-    {/if}
+    <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update />        
+    <FormGrid columns={columndata} {item} ref:form />
     <button color="primary" on:click="save()">Save</button>
     <button color="primary" on:click="next()">Next</button>
 </div>
@@ -180,20 +178,6 @@ export default {
                 }
             ]                
         }
-    },
-    oncreate() {
-        // const data1 =  data[1];
-        // setTimeout(() => {
-        //     const data2 = data1;
-        //     this.set({ item: data2 });
-        // }, 2000);
-        this.on('update', (e) => {
-            console.log('update');
-            this.set({ show: false });
-            console.log('update: false');
-            this.set({ show: true });
-            console.log('update: true');
-        })
     },
     computed:{
         item: ({ index }) => {
