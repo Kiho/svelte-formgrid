@@ -1,43 +1,41 @@
 import Field from './Field.html';
-
-import fieldBase from './inputs/field-base';
 import { TextInput, NumberInput, MaskedInput, CurrencyInput, SelectInput } from './inputs';
 
-function mergeState(base, data) {
-	return Object.assign({}, base, { settings: base }, { fieldtype: TextInput}, data);
+function mergeState(data, fieldtype) {
+	return Object.assign({}, data, { settings: data }, { fieldtype });
 }
 
 export const TextField = class extends Field {
   constructor(options) {
-		options.data = mergeState(options.data,  { fieldtype: TextInput });
+		options.data = mergeState(options.data, TextInput);
 		super(options);
 	}    
 }
 
 export const NumberField = class extends Field {
   constructor(options) {
-		options.data = mergeState(options.data,  { fieldtype: NumberInput, type: 'number' });
+		options.data = mergeState(options.data, NumberInput);
 		super(options);
 	}    
 }
 
 export const MaskedField = class extends Field {
   constructor(options) {
-		options.data = mergeState(options.data,  { fieldtype: MaskedInput });
+		options.data = mergeState(options.data, MaskedInput);
 		super(options);
 	}    
 }
 
 export const CurrencyField = class extends Field {
   constructor(options) {
-		options.data = mergeState(options.data,  { fieldtype: CurrencyInput });
+		options.data = mergeState(options.data, CurrencyInput);
 		super(options);
 	}    
 }
 
 export const SelectField = class extends Field {
 	constructor(options) {
-		options.data = mergeState(options.data,  { fieldtype: SelectInput });
+		options.data = mergeState(options.data, SelectInput);
 		super(options);
 	}    
 }
