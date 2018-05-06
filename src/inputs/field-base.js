@@ -20,10 +20,11 @@ export default {
         return Object.assign({}, intialData);
     },
     fieldData(data) {
+        console.log('field-base', data);
         return Object.assign({}, { settings: null }, intialData, data);
     },
     oncreate(p) {
-        const { uuid, settings } = p.get();
+        const { uuid, settings, type } = p.get();
         const element = p.refs.input;
         element.onkeyup = (e) => {
             if (p.get().submit) {

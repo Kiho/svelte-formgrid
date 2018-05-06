@@ -1,5 +1,5 @@
 <div class="container-fluid">
-    <TextField label="TextField" bind:value="text" placeholder="TextField" />
+    <TextField label="TextField- AA" bind:value="text" placeholder="Text" />
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update />        
     <FormGrid columns={columndata} {item} ref:form />
     <button color="primary" on:click="save()">Save</button>
@@ -9,7 +9,7 @@
 <script>
 import FormGrid from './FormGrid.html';
 import DataGrid from './DataGrid.html';
-import TextField from './TextField.html';
+import { TextField } from './fields';
 
 const stateList = [
    {id: 'AL',name: 'ALABAMA'},

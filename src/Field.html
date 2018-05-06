@@ -17,7 +17,7 @@
 
     export default {
         data() {
-            return { 
+            const initialData = { 
                 uuid: fieldBase.makeUniqueId(),
                 submit: false,
                 error: '',
@@ -25,7 +25,9 @@
                 fieldtype: null,
                 value: '',
             }
+            return Object.assign({}, initialData, fieldBase.fieldData());
         },
+
         computed:{
             message: ({ submit, error }) => {
                 return submit ? error : '';
