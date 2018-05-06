@@ -3,8 +3,8 @@
   "version": "0.2.2",
   "author": "Kiho Chang",
   "svelte": "src/index.js",
-  "main": "dist/formgrid.js",
-  "jsnext": "dist/formgrid.es.js",
+  "main": "lib/formgrid.js",
+  "jsnext": "lib/formgrid.es.js",
   "keywords": [
     "svelte",
     "typescript"
