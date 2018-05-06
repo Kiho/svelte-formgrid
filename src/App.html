@@ -113,7 +113,8 @@ export default {
                     component: 'action',
                     'class': 'secondary',
                     action: (row) => {
-                        console.log('DataGrid - action', row)
+                        alert('DataGrid - row action ' + row.id);
+                        console.log('DataGrid - action', row);
                     }
                 },
             ],

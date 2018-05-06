@@ -20,7 +20,7 @@ export default {
         return Object.assign({}, intialData);
     },
     fieldData(data) {
-        console.log('field-base', data);
+        // console.log('field-base', data);
         return Object.assign({}, { settings: null }, intialData, data);
     },
     oncreate(p) {
