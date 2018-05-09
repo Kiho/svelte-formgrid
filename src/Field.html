@@ -29,6 +29,9 @@
         },
 
         computed:{
+            settings: (all) => { 
+				return all.settings;
+			},
             message: ({ submit, error }) => {
                 return submit ? error : '';
             },
