@@ -133,7 +133,11 @@ export default {
                     component: 'text',
                     required: true,
                     row: 1,
-                    col: 'md-3'
+                    col: 'md-3',
+                    schema: {
+                        minLength: [2, 'It`s too short man :('],
+                        maxLength: 10
+                    }
                 }, {
                     label: 'Last Name',
                     field: 'lname',

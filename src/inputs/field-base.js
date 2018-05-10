@@ -28,7 +28,10 @@ export default {
         const element = p.refs.input;
         element.onkeyup = (e) => {
             if (p.get().submit) {
-                const error = element.checkValidity() ? '' : element.validationMessage;
+                let error = element.checkValidity() ? '' : element.validationMessage;
+                if (p.validate) {
+                    error = p.validate();
+                }
                 p.set({error});
             }
         };
