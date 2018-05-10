@@ -200,13 +200,12 @@ function ruleRunner(
     }
   
     const result = ruleHandler(fieldName, value, schema);
-    // if (result.isValid) return;
+    if (result.isValid) return;
   
-    // throwError(value, userErrorText || result.errorText);
-    return result;
+    throwError(value, userErrorText || result.errorText);
 }
 
-export function rulesRunner(
+export function rulesRunner (
     value,
     fieldSchema,
     allSchema,
@@ -222,11 +221,15 @@ export function rulesRunner(
         fieldState.status = FieldStatus.ok;
     }
   
-    return runMatchers(
-        handlerMatcher,
-        fieldState,
-        fieldSchema,
-        allSchema,
-        allState
-    );
+    try {
+        return runMatchers(
+            handlerMatcher,
+            fieldState,
+            fieldSchema,
+            allSchema,
+            allState
+        );
+    } catch (err) {
+        return err;
+    }
 }
