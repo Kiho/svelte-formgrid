@@ -5,7 +5,7 @@
     {/if}
     <div class="row {class}">
         {#each row.columns as col}
-        <FormCol settings="{col}" bind:source {edit} />
+        <FormCol settings={col} {formSchema} bind:source {edit} />
         {/each}
     </div>
 {/each}
@@ -21,6 +21,7 @@ export default {
             edit: true,
             item: {},
             columns: [],
+            formSchema: {},
         }
     },
     components:{
@@ -30,13 +31,14 @@ export default {
         source: ({ item }) => {
             return item;
         },
-        rows: ({ columns }) => {                
+        rows: ({ columns, formSchema }) => {                
             const maxRowNum = Math.max.apply(Math, columns.map(o => o.row))
             const rows = [];
             for (let i = 0; i <= maxRowNum; i++) {
                 rows.push({ columns: [] });
             }
             columns.forEach(col => {
+                col.formSchema = formSchema;
                 const row = rows[col.row];
                 if (row && row.columns) {
                     row.columns.push(col);

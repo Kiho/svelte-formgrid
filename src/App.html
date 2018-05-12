@@ -1,7 +1,7 @@
 <div class="container-fluid">
     <TextField label="TextField- AA" bind:value="text" placeholder="Text" />
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update />        
-    <FormGrid columns={columndata} {item} ref:form />
+    <FormGrid columns={columndata} {item} {formSchema} ref:form />
     <button color="primary" on:click="save()">Save</button>
     <button color="primary" on:click="next()">Next</button>
 </div>
@@ -58,6 +58,13 @@ const data = [
         }
     ];
 
+function preValidateForm(form) {
+    for (let i = 0; i < form.length; i++) {
+        const input = form[i];
+        input.preValidate && input.preValidate();
+    }
+}
+
 function validateForm(form) {
     // check validity of all inputs
     const isValid = form.checkValidity();
@@ -89,6 +96,12 @@ export default {
             rows: data,
             show: true,
             text: '12345',
+            formSchema: {
+                fname: {
+                    minLength: [2, 'It`s too short man :('],
+                    maxLength: 10
+                }
+            },
             fielddata: [
                 {
                     label: 'Field', 
@@ -134,10 +147,6 @@ export default {
                     required: true,
                     row: 1,
                     col: 'md-3',
-                    schema: {
-                        minLength: [2, 'It`s too short man :('],
-                        maxLength: 10
-                    }
                 }, {
                     label: 'Last Name',
                     field: 'lname',
@@ -200,6 +209,7 @@ export default {
             const { item } = this.get();
             const form = this.refs.form.refs.form;
             console.log('save');
+            preValidateForm(form);
             if (!validateForm(form)) {
                 console.log("Form is not valid", item);
                 return;

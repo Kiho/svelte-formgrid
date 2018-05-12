@@ -1,4 +1,4 @@
-import { rulesRunner } from '../ruleHandlers/validationUtils';
+import { rulesRunner } from '../validations/validationUtils';
 import TextInputBase from './TextInput.html';
 
 export { default as MaskedInput } from './MaskedInput.html';
@@ -8,13 +8,26 @@ export { default as NumberInput } from './NumberInput.html';
 export { default as CheckboxInput } from './CheckboxInput.html';
 export { default as ActionButton } from './ActionButton.html';
 
+function preValidate() {
+    const { formSchema, element, field } = this.get();
+    const fieldValue = element.value;
+    const fieldSchema = formSchema[field];
+    let result = { errorText: '' };
+    if (fieldSchema){
+        result = rulesRunner(fieldValue, formSchema);   
+    } 
+    // console.log('TextInput - preValidate()', this, schema);
+    element.setCustomValidity(result.errorText);
+}
+
 export const TextInput = class extends TextInputBase {
-    validate() {
-        const { schema, element, field } = this.get();
-        const fieldValue = element.value;
-        const fieldSchema = { [field]: schema };
-        const result = rulesRunner(fieldValue, fieldSchema); //
-        // console.log('TextInput - validate()', this, schema);
-        return result.errorText;
+    constructor(options) {      
+        super(options);
+        options.oncreate = this.oncreate;
+    }
+
+    oncreate(p) {
+        const { element } = p.get();
+        element.preValidate = preValidate.bind(p);
     }
 }

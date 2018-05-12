@@ -2,7 +2,7 @@ import is from 'is_js'
 import handlerMatcher, {
     RuleWhichNeedsArray,
     RuleWhichNeedsBoolean
-} from "../ruleHandlers/matchers";
+} from "./matchers";
 
 export const FieldStatus = {
     ok: 'ok',
@@ -33,11 +33,16 @@ function extractUserDefinedMsg(
     handlerName,
     schema
   ) {
+    const userErrorTextKey = `${handlerName}_userErrorText`;  
     const result = { schema, userErrorText: '' };
   
-    // No user message, just return
-    if (is.not.array(schema[handlerName])) return result;
-  
+    // No user message or already processed
+    if (is.not.array(schema[handlerName])) {
+        if (schema[userErrorTextKey]) {
+            result.userErrorText = result.schema[userErrorTextKey];
+        }
+        return result;
+    }    
     const currentSchema = schema[handlerName];
   
     // Handle the case where the value of rule is array
@@ -49,6 +54,7 @@ function extractUserDefinedMsg(
     // The most common case: [0] is rule and [1] is errText
     const [rule, errText] = currentSchema;
     result.schema[handlerName] = rule;
+    result.schema[userErrorTextKey] = errText;
     result.userErrorText = errText;
     return result;
 }
@@ -86,7 +92,7 @@ function isOnlyWhenFulfilled(
     allState
   ) {
     return Object.keys(fieldOnlyWhenSchema).every(reliedFieldName => {
-      const reliesKeySchema = fieldOnlyWhenSchema[reliedFieldName];
+        const reliesKeySchema = fieldOnlyWhenSchema[reliedFieldName];
   
         return Object.keys(reliesKeySchema).every(rule => {
             const reliedFieldValue = grabValueForReliesField(
