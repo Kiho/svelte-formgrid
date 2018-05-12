@@ -14,6 +14,8 @@
         data: fieldBase.data,
         oncreate() {
             fieldBase.oncreate(this);
+            const { element } = this.get();
+            element.preValidate = fieldBase.preValidate.bind(this);
         },
     }
 </script>

@@ -122,10 +122,10 @@ function runMatchers(
     matcher,
     fieldState,
     fieldSchema,
+    fieldName,
     allSchema,
     allState
   ) {
-    const fieldName = Object.keys(fieldSchema)[0];
     const fieldRules = fieldSchema[fieldName];
   
     if (fieldRules.onlyWhen != null) {
@@ -212,9 +212,10 @@ function ruleRunner(
     throwError(value, userErrorText || result.errorText);
 }
 
-export function rulesRunner (
+export function rulesRunner(
     value,
     fieldSchema,
+    fieldName,
     allSchema,
     allState
   ) {
@@ -233,6 +234,7 @@ export function rulesRunner (
             handlerMatcher,
             fieldState,
             fieldSchema,
+            fieldName,
             allSchema,
             allState
         );

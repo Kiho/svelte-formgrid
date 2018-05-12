@@ -49,7 +49,7 @@ export default {
         const fieldSchema = formSchema[field];
         let result = { errorText: '' };
         if (fieldSchema){
-            result = rulesRunner(fieldValue, formSchema);   
+            result = rulesRunner(fieldValue, formSchema, field);   
         } 
         // console.log('TextInput - preValidate()', this, schema);
         element.setCustomValidity(result.errorText);
