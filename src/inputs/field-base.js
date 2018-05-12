@@ -1,3 +1,5 @@
+import { rulesRunner } from '../validations/validationUtils';
+
 const intialData = { 
     type: 'text',
     placeholder: '',
@@ -40,6 +42,17 @@ export default {
             element.setAttribute('id', uuid);
         }
         p.set({ element });        
+    },
+    preValidate() {
+        const { formSchema, element, field } = this.get();
+        const fieldValue = element.value;
+        const fieldSchema = formSchema[field];
+        let result = { errorText: '' };
+        if (fieldSchema){
+            result = rulesRunner(fieldValue, formSchema);   
+        } 
+        // console.log('TextInput - preValidate()', this, schema);
+        element.setCustomValidity(result.errorText);
     },
     validate(p) { 
         const { element } = p.get();       

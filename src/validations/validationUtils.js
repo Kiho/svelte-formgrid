@@ -191,9 +191,10 @@ function ruleRunner(
     fieldRules
   ) {
     if (ruleHandler == null) {
-      // eslint-disable-next-line no-console
-      console.warn(`${ruleName} is invalid. Please check the online doc for more reference: https://albert-gao.github.io/veasy/#/rules`);
-      return;
+        if (ruleName.indexOf('_userErrorText') === -1){
+            console.warn(`${ruleName} is invalid. Please check the online doc for more reference: https://albert-gao.github.io/veasy/#/rules`);
+        }            
+        return;
     }
   
     const { schema, userErrorText } = extractUserDefinedMsg (
