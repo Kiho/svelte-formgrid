@@ -1,11 +1,13 @@
 <select class="form-control {inputClass}" bind:value="value" ref:input on:change="fire('change', event)">
-    {#each optionList as opt}
-        {#if typeof optionList[0] === 'string'}
-        <option>{opt}</option>
-        {:else}
-        <option value={opt[optionValue]}>{getOptionName(opt)}</option>                    
-        {/if}
-    {/each}
+    {#if isObjectOptions }
+        {#each optionList as opt}        
+            <option value={opt[optionValue]}>{getOptionName(opt)}</option>        
+        {/each}
+    {:else}
+        {#each optionList as opt}        
+            <option>{opt}</option> 
+        {/each}                                   
+    {/if}
 </select>
 
 <script>
@@ -26,5 +28,11 @@
         oncreate() {
             fieldBase.oncreate(this);
         },
+        computed: {
+            isObjectOptions: ({ optionList }) => {
+                const listType = typeof optionList[0];
+                return optionList ? listType === 'object' : false;
+            }
+        }
     }
 </script>
