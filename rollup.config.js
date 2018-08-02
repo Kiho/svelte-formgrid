@@ -45,12 +45,17 @@ export default [
 
 	{
 		input: 'src/main.js',	
-		output: {
+		output: [{
 			sourcemap: true,	
 			format: 'iife',
 			file: 'public/bundle.js',
 			name: 'app',
-		},
+		}, {
+			sourcemap: true,	
+			format: 'iife',
+			file: 'docs/bundle.js',
+			name: 'app',
+		}],
 		plugins: [
 			svelte({
 				// enable run-time checks when not in production
@@ -63,9 +68,6 @@ export default [
 
 				// enable https://svelte.technology/guide#state-management
 				store: true,
-
-				// this results in smaller CSS files
-				cascade: false
 			}),
 
 			// If you have external dependencies installed from

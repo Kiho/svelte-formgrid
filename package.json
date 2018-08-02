@@ -35,6 +35,7 @@
     "test": "node test/runner.js | tap-dot",
     "test:browser": "npm run build && serve test/public",
     "dev": "rollup -c -w",
-    "start": "serve public"
+    "start": "serve public",
+    "start:docs": "serve docs"
   }
 }
