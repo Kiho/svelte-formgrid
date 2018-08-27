@@ -27,11 +27,6 @@ export default [
 			}
 		],
 		plugins: [
-			svelte({
-				// enable run-time checks when not in production
-				dev: !production,
-			}),
-
 			// If you have external dependencies installed from
 			// npm, you'll most likely need these plugins. In
 			// some cases you'll need additional configuration —
@@ -39,6 +34,10 @@ export default [
 			// https://github.com/rollup/rollup-plugin-commonjs
 			resolve(),
 			commonjs(),
+			svelte({
+				// enable run-time checks when not in production
+				dev: !production,
+			}),
 			production && buble({ objectAssign: 'Object.assign', exclude: 'node_modules/**' }),
 		],
 	},
@@ -57,6 +56,13 @@ export default [
 			name: 'app',
 		}],
 		plugins: [
+			// If you have external dependencies installed from
+			// npm, you'll most likely need these plugins. In
+			// some cases you'll need additional configuration —
+			// consult the documentation for details:
+			// https://github.com/rollup/rollup-plugin-commonjs
+			resolve(),
+			commonjs(),
 			svelte({
 				// enable run-time checks when not in production
 				dev: !production,
@@ -69,14 +75,6 @@ export default [
 				// enable https://svelte.technology/guide#state-management
 				store: true,
 			}),
-
-			// If you have external dependencies installed from
-			// npm, you'll most likely need these plugins. In
-			// some cases you'll need additional configuration —
-			// consult the documentation for details:
-			// https://github.com/rollup/rollup-plugin-commonjs
-			resolve(),
-			commonjs(),
 		],
 	},
 

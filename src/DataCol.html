@@ -1,5 +1,5 @@
 {#if edit || settings.action}
-    <svelte:component this="{ fieldtype }" {...settings} bind:value="source[settings.field]" on:change on:click />
+    <svelte:component this="{ fieldtype }" {...props} bind:value="source[settings.field]" on:change on:click />
 {:else}
     { collect(source, settings.field) }
 {/if}
@@ -26,8 +26,8 @@
             collect
         },
         computed:{
-            settings: (all) => { 
-				return all.settings;
+            props: (all) => { 
+				return all.settings || all;
 			},
             fieldtype: ({ settings }) => {
                 let ft = TextInput;

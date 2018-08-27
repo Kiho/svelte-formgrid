@@ -20,9 +20,9 @@
     export default {
         data: fieldBase.data,
         oncreate() {
-            fieldBase.oncreate(this, true);
+            fieldBase.oncreate(this);
         },
-        onstate({ changed, current, previous }) {
+        onupdate({ changed, current, previous }) {
             if (changed.value) {
                 this.set({ text: formatCurrency(current.value) });
             }

@@ -18,7 +18,7 @@
         oncreate() {
             fieldBase.oncreate(this);
         },
-        onstate({ changed, current }) {
+        onupdate({ changed, current }) {
             if (changed.value) {
                 this.set({ text: current.value });
             }

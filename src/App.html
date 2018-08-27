@@ -1,5 +1,5 @@
 <div class="container-fluid">
-    <TextField label="TextField- AA" bind:value="text" placeholder="Text" />
+    <TextField label="Indivisual TextField" bind:value="text" placeholder="Text" />
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update />        
     <FormGrid columns={columndata} {item} ref:form />
     <button color="primary" on:click="save()">Save</button>

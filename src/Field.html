@@ -2,7 +2,7 @@
     <label class="col-4 col-form-label" for={uuid}>{label}</label>
     <div class="col-8">
         <div class="form-group">
-            <svelte:component this="{fieldtype}" {...settings} bind:value bind:submit bind:error {uuid} />
+            <svelte:component this="{fieldtype}" {...props} bind:value bind:submit bind:error {uuid} />
             {#if submit && error}
             <div class="invalid-feedback">
                 {message}
@@ -29,8 +29,8 @@
         },
 
         computed:{
-            settings: (all) => { 
-				return all.settings;
+            props: (all) => { 
+				return all.settings || all;
 			},
             message: ({ submit, error }) => {
                 return submit ? error : '';
