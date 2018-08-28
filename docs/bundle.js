@@ -3221,8 +3221,16 @@ var app = (function () {
 	}
 	var methods$3 = {
 	    next() {
+	        const { index, rows } = this.get();
+	        if (index < rows.length - 1) {
+	            this.set({ index: index + 1 });
+	        }
+	    },
+	    previous() {
 	        const { index } = this.get();
-	        this.set({ index: index + 1 });
+	        if (index > 0) {
+	            this.set({ index: index - 1 });
+	        }                
 	    },
 	    save() {
 	        const { item } = this.get();
@@ -3239,7 +3247,7 @@ var app = (function () {
 	const file$d = "src\\App.html";
 
 	function create_main_fragment$d(component, ctx) {
-		var div, textfield_updating = {}, text, datagrid_updating = {}, text_1, text_2, button, text_3, text_4, button_1, text_5;
+		var div, textfield_updating = {}, text, datagrid_updating = {}, text_1, text_2, button, text_3, text_4, button_1, text_5, text_6, button_2, text_7;
 
 		var textfield_initial_data = {
 		 	label: "Indivisual TextField",
@@ -3312,11 +3320,15 @@ var app = (function () {
 		component.refs.form = formgrid;
 
 		function click_handler(event) {
-			component.save();
+			component.previous();
 		}
 
 		function click_handler_1(event) {
 			component.next();
+		}
+
+		function click_handler_2(event) {
+			component.save();
 		}
 
 		return {
@@ -3329,16 +3341,22 @@ var app = (function () {
 				formgrid._fragment.c();
 				text_2 = createText("\n    ");
 				button = createElement("button");
-				text_3 = createText("Save");
+				text_3 = createText("Previous");
 				text_4 = createText("\n    ");
 				button_1 = createElement("button");
 				text_5 = createText("Next");
+				text_6 = createText("\n    ");
+				button_2 = createElement("button");
+				text_7 = createText("Save");
 				addListener(button, "click", click_handler);
 				setAttribute(button, "color", "primary");
 				addLoc(button, file$d, 4, 4, 255);
 				addListener(button_1, "click", click_handler_1);
 				setAttribute(button_1, "color", "primary");
-				addLoc(button_1, file$d, 5, 4, 315);
+				addLoc(button_1, file$d, 5, 4, 323);
+				addListener(button_2, "click", click_handler_2);
+				setAttribute(button_2, "color", "primary");
+				addLoc(button_2, file$d, 6, 4, 383);
 				div.className = "container-fluid";
 				addLoc(div, file$d, 0, 0, 0);
 			},
@@ -3356,6 +3374,9 @@ var app = (function () {
 				append(div, text_4);
 				append(div, button_1);
 				append(button_1, text_5);
+				append(div, text_6);
+				append(div, button_2);
+				append(button_2, text_7);
 			},
 
 			p: function update(changed, _ctx) {
@@ -3397,6 +3418,7 @@ var app = (function () {
 				if (component.refs.form === formgrid) component.refs.form = null;
 				removeListener(button, "click", click_handler);
 				removeListener(button_1, "click", click_handler_1);
+				removeListener(button_2, "click", click_handler_2);
 			}
 		};
 	}

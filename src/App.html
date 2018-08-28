@@ -2,8 +2,9 @@
     <TextField label="Indivisual TextField" bind:value="text" placeholder="Text" />
     <DataGrid bind:rows="columndata" bind:columns="fielddata" on:update />        
     <FormGrid columns={columndata} {item} ref:form />
-    <button color="primary" on:click="save()">Save</button>
+    <button color="primary" on:click="previous()">Previous</button>
     <button color="primary" on:click="next()">Next</button>
+    <button color="primary" on:click="save()">Save</button>
 </div>
 
 <script>
@@ -189,8 +190,16 @@ export default {
     },
     methods: {
         next() {
+            const { index, rows } = this.get();
+            if (index < rows.length - 1) {
+                this.set({ index: index + 1 });
+            }
+        },
+        previous() {
             const { index } = this.get();
-            this.set({ index: index + 1 });
+            if (index > 0) {
+                this.set({ index: index - 1 });
+            }                
         },
         save() {
             const { item } = this.get();
