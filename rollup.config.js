@@ -3,10 +3,9 @@ import resolve from 'rollup-plugin-node-resolve';
 import commonjs from 'rollup-plugin-commonjs';
 import buble from 'rollup-plugin-buble';
 import multiEntry from "rollup-plugin-multi-entry";
-// import uglify from 'rollup-plugin-uglify';
 
 const pack = require('./package.json');
-// , transforms: { forOf: false }
+
 const production = !process.env.ROLLUP_WATCH;
 console.log('production', production);
 
@@ -71,9 +70,6 @@ export default [
 				css: css => {
 					css.write('public/bundle.css');
 				},
-
-				// enable https://svelte.technology/guide#state-management
-				store: true,
 			}),
 		],
 	},
