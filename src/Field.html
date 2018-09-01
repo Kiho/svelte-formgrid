@@ -22,6 +22,7 @@
                 submit: false,
                 error: '',
                 settings: null,
+                withSettings: false,
                 fieldtype: null,
                 value: '',
             }
@@ -30,7 +31,7 @@
 
         computed:{
             props: (all) => { 
-				return all.settings || all;
+				return all.withSettings ? all.settings : all;
 			},
             message: ({ submit, error }) => {
                 return submit ? error : '';

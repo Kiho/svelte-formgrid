@@ -1,7 +1,4 @@
-<!-- <Field {uuid} label="{fieldlabel}" bind:submit bind:error >
-    <svelte:component this="{ fieldtype }" {...settings} bind:value bind:submit bind:error {uuid} />
-</Field> -->
-<Field {settings} {fieldtype} bind:value />
+<Field {settings} withSettings={true} {fieldtype} bind:value />
 
 <script>
     import {
