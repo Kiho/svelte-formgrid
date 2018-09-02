@@ -5,9 +5,15 @@ import assert from '../../utils/assert';
 
 // setup
 const target = document.querySelector('main');
+const stateList = [
+	{id: 'AL',name: 'ALABAMA'},
+	{id: 'MA',name: 'MASSACHUSETTS'},
+	{id: 'MO',name: 'MISSOURI'},
+	{id: 'RI',name: 'RHODE ISLAND'}
+];
 
 // test Text
-test('with no data, creates <Text /> elements', t => {
+test('creates <Text /> elements', t => {
 	const textField = new TextField({
 		target,
 		data: {
@@ -38,7 +44,7 @@ test('with no data, creates <Text /> elements', t => {
 });
 
 // test NumberField
-test('with no data, creates <NumberField /> elements', t => {
+test('creates <NumberField /> elements', t => {
 	const numberField = new NumberField({
 		target,
 		data: {
@@ -68,7 +74,7 @@ test('with no data, creates <NumberField /> elements', t => {
 });
 
 // test MaskedField
-test('with no data, creates <MaskedField /> elements', t => {
+test('creates <MaskedField /> elements', t => {
 	const maskedField = new MaskedField({
 		target,
 		data: {
@@ -101,35 +107,40 @@ test('with no data, creates <MaskedField /> elements', t => {
 });
 
 // test Select
-// test('with no data, creates <SelectField /> elements', t => {
-// 	const selectField = new SelectField({
-// 		target,
-// 		data: {
-// 			value: 'one',
-// 			label: 'text'
-// 		}
-//     });
+test('creates <SelectField /> elements', t => {
+	const selectField = new SelectField({
+		target,
+		data: {
+			label: 'select',
+			value: '',
+			optionList: stateList
+		}
+    });
 
-//     t.htmlEqualIgnoreId(target.innerHTML, `
-//         <div class="form-group row">
-//             <label class="col-4 col-form-label" for="38e615fc-0c98-4789-867a-74144f0dc309">text</label>
-//             <div class="col-8">
-//                 <div class="form-group">
-//                     <select class="form-control "></select>
-//                 </div>
-//             </div>
-//         </div>
-// 	`);
+    t.htmlEqualIgnoreId(target.innerHTML, `
+		<div class="form-group row">
+			<label class="col-4 col-form-label" for="166def6d-1423-49ca-9850-a543418b8876">select</label>
+			<div class="col-8">
+				<div class="form-group">
+					<select class="form-control "id="166def6d-1423-49ca-9850-a543418b8876">
+						<option value="AL">ALABAMA</option><option value="MA">MASSACHUSETTS</option><option value="MO">MISSOURI</option><option value="RI">RHODE ISLAND</option>
+					</select>
+				</div>
+			</div>
+		</div>
+	`);
 
-// 	const input = target.querySelector('select');	
-// 	t.equal(input.value, 'one');
+	let sel = target.querySelector('option');
+	let sel1 = sel.nextElementSibling;
+	let sel2 = sel1.nextElementSibling;
+	let sel3 = sel2.nextElementSibling;
+	
+	t.equal(sel.value, 'AL');
+	t.equal(sel1.value, 'MA');
+	t.equal(sel2.value, 'MO');
+	t.equal(sel3.value, 'RI');
 
-// 	selectField.set({ value: 'three' });
+	selectField.destroy();
+});
 
-// 	t.equal(input.value, 'three');
-
-// 	selectField.destroy();
-// });
-
-// this allows us to close puppeteer once tests have completed
 window.done = done;
