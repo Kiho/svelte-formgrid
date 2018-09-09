@@ -6,6 +6,7 @@ See [demo](https://kiho.github.io/svelte-formgrid/)
 - Reduce bundle size
 - Simple form validation
 - Simple input masking
+- Unit Testing (Need more)
 
 # Credits
 - https://github.com/lnryan/tryouts/tree/master/svelte/DataTable
