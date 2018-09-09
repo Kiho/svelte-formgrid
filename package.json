@@ -5,6 +5,7 @@
   "svelte": "src/index.js",
   "main": "lib/formgrid.js",
   "jsnext": "lib/formgrid.es.js",
+  "license": "MIT",
   "keywords": [
     "svelte",
     "form"
