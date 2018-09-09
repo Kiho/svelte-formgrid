@@ -1,6 +1,6 @@
 {
   "name": "svelte-formgrid",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "author": "Kiho Chang",
   "svelte": "src/index.js",
   "main": "lib/formgrid.js",
