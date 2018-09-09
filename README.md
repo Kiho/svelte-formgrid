@@ -1,7 +1,7 @@
 # Svelte FormGrid
 See [demo](https://kiho.github.io/svelte-formgrid/)
 
-**Work in progress...**
+# Features
 - Render the form with data
 - Reduce bundle size
 - Simple form validation

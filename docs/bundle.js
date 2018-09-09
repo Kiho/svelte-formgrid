@@ -3110,17 +3110,17 @@ var app = (function () {
 			c() {
 				div = createElement("div");
 				textfield._fragment.c();
-				text = createText("\n    ");
+				text = createText("\r\n    ");
 				datagrid._fragment.c();
-				text_1 = createText("        \n    ");
+				text_1 = createText("        \r\n    ");
 				formgrid._fragment.c();
-				text_2 = createText("\n    ");
+				text_2 = createText("\r\n    ");
 				button = createElement("button");
 				button.textContent = "Previous";
-				text_4 = createText("\n    ");
+				text_4 = createText("\r\n    ");
 				button_1 = createElement("button");
 				button_1.textContent = "Next";
-				text_6 = createText("\n    ");
+				text_6 = createText("\r\n    ");
 				button_2 = createElement("button");
 				button_2.textContent = "Save";
 				addListener(button, "click", click_handler);

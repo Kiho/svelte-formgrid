@@ -14,6 +14,7 @@ public/app.css
 dist/*
 **/build/js/*
 **/packages/*
+/lib/
 # except build/, which is used as an MSBuild target.
 !**/packages/build/
 # Uncomment if necessary however generally it will be regenerated when needed
