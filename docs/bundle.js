@@ -277,7 +277,7 @@ var app = (function () {
 	        return Object.assign({}, { settings: null }, intialData, data);
 	    },
 	    oncreate(p) {
-	        const { uuid, settings, type } = p.get();
+	        const { uuid, dataset } = p.get();
 	        const element = p.refs.input;
 	        element.onkeyup = (e) => {
 	            if (p.get().submit) {
@@ -290,6 +290,11 @@ var app = (function () {
 	        };
 	        if (uuid) {
 	            element.setAttribute('id', uuid);
+	        }
+	        if (dataset) {
+	            for (let k in dataset) { 
+	                element.setAttribute(`data-${k}`, dataset[k]);
+	            }
 	        }
 	        p.set({ element });        
 	    },
@@ -994,11 +999,21 @@ var app = (function () {
 			component.fire('change', event);
 		}
 
+		function keydown_handler(event) {
+			component.fire("keydown", event);
+		}
+
+		function focus_handler(event) {
+			component.fire("focus", event);
+		}
+
 		return {
 			c() {
 				input = createElement("input");
 				addListener(input, "input", input_input_handler);
 				addListener(input, "change", change_handler);
+				addListener(input, "keydown", keydown_handler);
+				addListener(input, "focus", focus_handler);
 				setAttribute(input, "type", "text");
 				input.className = input_class_value = "form-control " + ctx.inputClass;
 				input.placeholder = ctx.placeholder;
@@ -1041,6 +1056,8 @@ var app = (function () {
 
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "change", change_handler);
+				removeListener(input, "keydown", keydown_handler);
+				removeListener(input, "focus", focus_handler);
 				if (component.refs.input === input) component.refs.input = null;
 			}
 		};
@@ -1173,6 +1190,9 @@ var app = (function () {
 	        value: false,
 	    }
 	}
+	function oncreate$5() {
+	    fieldBase.oncreate(this);
+	}
 	function create_main_fragment$5(component, ctx) {
 		var input;
 
@@ -1184,17 +1204,28 @@ var app = (function () {
 			component.fire('change', event);
 		}
 
+		function keydown_handler(event) {
+			component.fire("keydown", event);
+		}
+
+		function focus_handler(event) {
+			component.fire("focus", event);
+		}
+
 		return {
 			c() {
 				input = createElement("input");
 				addListener(input, "change", input_change_handler);
 				addListener(input, "change", change_handler);
+				addListener(input, "keydown", keydown_handler);
+				addListener(input, "focus", focus_handler);
 				setAttribute(input, "type", "checkbox");
 				input.className = "" + ctx.class + " svelte-m11ft5";
 			},
 
 			m(target, anchor) {
 				insert(target, input, anchor);
+				component.refs.input = input;
 
 				input.checked = ctx.value;
 			},
@@ -1213,20 +1244,31 @@ var app = (function () {
 
 				removeListener(input, "change", input_change_handler);
 				removeListener(input, "change", change_handler);
+				removeListener(input, "keydown", keydown_handler);
+				removeListener(input, "focus", focus_handler);
+				if (component.refs.input === input) component.refs.input = null;
 			}
 		};
 	}
 
 	function CheckboxInput(options) {
 		init(this, options);
+		this.refs = {};
 		this._state = assign(data$5(), options.data);
 		this._intro = true;
 
 		this._fragment = create_main_fragment$5(this, this._state);
 
+		this.root._oncreate.push(() => {
+			oncreate$5.call(this);
+			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
+		});
+
 		if (options.target) {
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
+
+			flush(this);
 		}
 	}
 
@@ -1591,7 +1633,7 @@ var app = (function () {
 	        settings: null
 	    }
 	}
-	function oncreate$5() {
+	function oncreate$6() {
 	    fieldBase.mergeProps(this, this.get().settings);
 	}
 	function create_main_fragment$8(component, ctx) {
@@ -1661,7 +1703,7 @@ var app = (function () {
 		this._fragment = create_main_fragment$8(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate$5.call(this);
+			oncreate$6.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
@@ -2332,6 +2374,16 @@ var app = (function () {
 		}
 
 		if (switch_instance) switch_instance.on("click", switch_instance_click);
+		function switch_instance_keydown(event) {
+			component.fire("keydown", event);
+		}
+
+		if (switch_instance) switch_instance.on("keydown", switch_instance_keydown);
+		function switch_instance_focus(event) {
+			component.fire("focus", event);
+		}
+
+		if (switch_instance) switch_instance.on("focus", switch_instance_focus);
 
 		return {
 			c() {
@@ -2375,6 +2427,8 @@ var app = (function () {
 
 						switch_instance.on("change", switch_instance_change);
 						switch_instance.on("click", switch_instance_click);
+						switch_instance.on("keydown", switch_instance_keydown);
+						switch_instance.on("focus", switch_instance_focus);
 					} else {
 						switch_instance = null;
 					}
@@ -2451,25 +2505,51 @@ var app = (function () {
 
 	/* src\DataGrid.html generated by Svelte v2.13.1 */
 
-	function colCount({ columns }) {
-		return (columns) ? columns.length : 0;
-	}
-
 	function data$c() {
 	    return {
 	        class: '',
 	        columns: [],
 	        edit: true,
-	        rows: []
+	        rows: [],
+	        selected: null
 	    }
+	}
+	function setRowCol(settings, i, j) {
+	    settings.dataset = { row: i, col: j };
+	    return settings;
 	}
 	var methods$2 = {
 	    actionClick(event, row, action) {
 	        event && event.preventDefault();
 	        action && action(row);
 	    },
+	    arrow (e) {
+	        const { target: node, keyCode: code} = e;
+					if (code < 37 || code > 40) return;
+
+					let i = +node.dataset.row;
+					let j = +node.dataset.col;				
+					const { rows, columns } = this.get();
+
+					if (code === 37) j = Math.max(0, j - 1);
+					if (code === 39) j = Math.min(j + 1, columns.length - 1);
+					if (code === 38) i = Math.max(0, i - 1);
+					if (code === 40) i = Math.min(i + 1, rows.length - 1);
+					
+					this.set({ selected: [ i, j ] });
+				}
 	};
 
+	function onupdate$2({ changed, current, previous }) {
+	    if (previous && changed.selected && current.selected) {
+	        let s = current.selected;
+	        const el = this.refs.table.querySelector( 
+	            `[data-row="${s[0]}"][data-col="${s[1]}"]` 
+	        );
+	        // console.log(s, el);
+	        if (el) el.focus();
+				}
+			}
 	function create_main_fragment$c(component, ctx) {
 		var div, table, thead, tr, text_2, tbody, table_class_value;
 
@@ -2506,7 +2586,6 @@ var app = (function () {
 				for (var i = 0; i < each_1_blocks.length; i += 1) {
 					each_1_blocks[i].c();
 				}
-				setAttribute(table, "ref", "table");
 				table.className = table_class_value = "table table-striped table-sm " + (ctx.edit ? 'table-bordered' : '');
 				setStyle(div, "position", "relative");
 			},
@@ -2527,6 +2606,8 @@ var app = (function () {
 				for (var i = 0; i < each_1_blocks.length; i += 1) {
 					each_1_blocks[i].m(tbody, null);
 				}
+
+				component.refs.table = table;
 			},
 
 			p(changed, ctx) {
@@ -2585,6 +2666,8 @@ var app = (function () {
 				destroyEach(each_blocks, detach);
 
 				destroyEach(each_1_blocks, detach);
+
+				if (component.refs.table === table) component.refs.table = null;
 			}
 		};
 	}
@@ -2623,7 +2706,7 @@ var app = (function () {
 		};
 	}
 
-	// (14:8) {#each rows as row}
+	// (14:8) {#each rows as row, i}
 	function create_each_block_1$2(component, ctx) {
 		var tr;
 
@@ -2631,24 +2714,24 @@ var app = (function () {
 
 		var each_blocks = [];
 
-		for (var i = 0; i < each_value_2.length; i += 1) {
-			each_blocks[i] = create_each_block_2(component, get_each_context_1$2(ctx, each_value_2, i));
+		for (var i_1 = 0; i_1 < each_value_2.length; i_1 += 1) {
+			each_blocks[i_1] = create_each_block_2(component, get_each_context_1$2(ctx, each_value_2, i_1));
 		}
 
 		return {
 			c() {
 				tr = createElement("tr");
 
-				for (var i = 0; i < each_blocks.length; i += 1) {
-					each_blocks[i].c();
+				for (var i_1 = 0; i_1 < each_blocks.length; i_1 += 1) {
+					each_blocks[i_1].c();
 				}
 			},
 
 			m(target, anchor) {
 				insert(target, tr, anchor);
 
-				for (var i = 0; i < each_blocks.length; i += 1) {
-					each_blocks[i].m(tr, null);
+				for (var i_1 = 0; i_1 < each_blocks.length; i_1 += 1) {
+					each_blocks[i_1].m(tr, null);
 				}
 			},
 
@@ -2656,20 +2739,20 @@ var app = (function () {
 				if (changed.edit || changed.columns || changed.rows) {
 					each_value_2 = ctx.columns;
 
-					for (var i = 0; i < each_value_2.length; i += 1) {
-						const child_ctx = get_each_context_1$2(ctx, each_value_2, i);
+					for (var i_1 = 0; i_1 < each_value_2.length; i_1 += 1) {
+						const child_ctx = get_each_context_1$2(ctx, each_value_2, i_1);
 
-						if (each_blocks[i]) {
-							each_blocks[i].p(changed, child_ctx);
+						if (each_blocks[i_1]) {
+							each_blocks[i_1].p(changed, child_ctx);
 						} else {
-							each_blocks[i] = create_each_block_2(component, child_ctx);
-							each_blocks[i].c();
-							each_blocks[i].m(tr, null);
+							each_blocks[i_1] = create_each_block_2(component, child_ctx);
+							each_blocks[i_1].c();
+							each_blocks[i_1].m(tr, null);
 						}
 					}
 
-					for (; i < each_blocks.length; i += 1) {
-						each_blocks[i].d(1);
+					for (; i_1 < each_blocks.length; i_1 += 1) {
+						each_blocks[i_1].d(1);
 					}
 					each_blocks.length = each_value_2.length;
 				}
@@ -2685,11 +2768,11 @@ var app = (function () {
 		};
 	}
 
-	// (16:16) {#each columns as column}
+	// (16:16) {#each columns as column, j}
 	function create_each_block_2(component, ctx) {
 		var td, datacol_updating = {}, td_class_value;
 
-		var datacol_initial_data = { settings: ctx.column, edit: ctx.edit };
+		var datacol_initial_data = { edit: ctx.edit, settings: setRowCol(ctx.column, ctx.i, ctx.j) };
 		if (ctx.row !== void 0) {
 			datacol_initial_data.source = ctx.row;
 			datacol_updating.source = true;
@@ -2701,7 +2784,7 @@ var app = (function () {
 			_bind(changed, childState) {
 				var newState = {};
 				if (!datacol_updating.source && changed.source) {
-					ctx.each_value_1[ctx.row_index] = childState.source = childState.source;
+					ctx.each_value_1[ctx.i] = childState.source = childState.source;
 
 					newState.rows = ctx.rows;
 				}
@@ -2720,6 +2803,12 @@ var app = (function () {
 		datacol.on("click", function(event) {
 			component.actionClick(event, ctx.row, ctx.column.action);
 		});
+		datacol.on("keydown", function(event) {
+			component.arrow(event);
+		});
+		datacol.on("focus", function(event) {
+			component.set({selected: [ctx.i, ctx.j] });
+		});
 
 		return {
 			c() {
@@ -2737,8 +2826,8 @@ var app = (function () {
 			p(changed, _ctx) {
 				ctx = _ctx;
 				var datacol_changes = {};
-				if (changed.columns) datacol_changes.settings = ctx.column;
 				if (changed.edit) datacol_changes.edit = ctx.edit;
+				if (changed.columns) datacol_changes.settings = setRowCol(ctx.column, ctx.i, ctx.j);
 				if (!datacol_updating.source && changed.rows) {
 					datacol_changes.source = ctx.row;
 					datacol_updating.source = ctx.row !== void 0;
@@ -2777,7 +2866,7 @@ var app = (function () {
 		const child_ctx = Object.create(ctx);
 		child_ctx.row = list[i];
 		child_ctx.each_value_1 = list;
-		child_ctx.row_index = i;
+		child_ctx.i = i;
 		return child_ctx;
 	}
 
@@ -2785,17 +2874,22 @@ var app = (function () {
 		const child_ctx = Object.create(ctx);
 		child_ctx.column = list[i];
 		child_ctx.each_value_2 = list;
-		child_ctx.column_index = i;
+		child_ctx.j = i;
 		return child_ctx;
 	}
 
 	function DataGrid(options) {
 		init(this, options);
+		this.refs = {};
 		this._state = assign(data$c(), options.data);
-		this._recompute({ columns: 1 }, this._state);
 		this._intro = true;
+		this._handlers.update = [onupdate$2];
 
 		this._fragment = create_main_fragment$c(this, this._state);
+
+		this.root._oncreate.push(() => {
+			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
+		});
 
 		if (options.target) {
 			this._fragment.c();
@@ -2807,12 +2901,6 @@ var app = (function () {
 
 	assign(DataGrid.prototype, proto);
 	assign(DataGrid.prototype, methods$2);
-
-	DataGrid.prototype._recompute = function _recompute(changed, state) {
-		if (changed.columns) {
-			if (this._differs(state.colCount, (state.colCount = colCount(state)))) changed.colCount = true;
-		}
-	};
 
 	function mergeState(data, fieldtype) {
 		return Object.assign({}, data, { settings: data, withSettings: true }, { fieldtype });

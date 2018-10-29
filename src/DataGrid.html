@@ -1,5 +1,5 @@
 <div style="position: relative">
-    <table ref="table" class="table table-striped table-sm {edit ? 'table-bordered' : ''}">
+    <table ref:table class="table table-striped table-sm {edit ? 'table-bordered' : ''}">
         <thead>
             <tr>
                 {#each columns as column, x}
@@ -11,12 +11,18 @@
         </thead>
 
         <tbody>
-        {#each rows as row}
+        {#each rows as row, i}
             <tr>
-                {#each columns as column}
+                {#each columns as column, j}
                     <td class="{ ((!edit && column.action) || edit) ? 'nopadding' : '' } { column.numeric ? 'numeric' : ''} { column.truncate ? ' truncate' : '' }" 
 							style="width: { column.width ? column.width : 'auto' }">
-                        <DataCol bind:source="row" settings="{column}" {edit} on:change="fire('update', { event })" on:click="actionClick(event, row, column.action)" />
+                        <DataCol bind:source="row" {edit} 
+                            settings="{setRowCol(column, i, j)}"
+                            on:change="fire('update', { event })" 
+                            on:click="actionClick(event, row, column.action)"
+                            on:keydown="arrow(event)"
+				            on:focus="set({selected: [i, j] })"
+                        />
                     </td>    
                 {/each}
             </tr>
@@ -34,20 +40,49 @@
                 class: '',
                 columns: [],
                 edit: true,
-                rows: []
+                rows: [],
+                selected: null
+            }
+        },
+        helpers: {
+            setRowCol(settings, i, j) {
+                settings.dataset = { row: i, col: j };
+                return settings;
             }
         },
         components:{
             DataCol
         },
-        computed: {
-            colCount: ({ columns }) => (columns) ? columns.length : 0,
-        },
+        onupdate({ changed, current, previous }) {
+            if (previous && changed.selected && current.selected) {
+                let s = current.selected;
+                const el = this.refs.table.querySelector( 
+                    `[data-row="${s[0]}"][data-col="${s[1]}"]` 
+                );
+                // console.log(s, el);
+                if (el) el.focus();
+			}
+		},
         methods: {
             actionClick(event, row, action) {
                 event && event.preventDefault();
                 action && action(row);
             },
+            arrow (e) {
+                const { target: node, keyCode: code} = e;
+				if (code < 37 || code > 40) return;
+
+				let i = +node.dataset.row;
+				let j = +node.dataset.col;				
+				const { rows, columns } = this.get();
+
+				if (code === 37) j = Math.max(0, j - 1);
+				if (code === 39) j = Math.min(j + 1, columns.length - 1);
+				if (code === 38) i = Math.max(0, i - 1);
+				if (code === 40) i = Math.min(i + 1, rows.length - 1);
+				
+				this.set({ selected: [ i, j ] });
+			}
         }
     }
 </script>
