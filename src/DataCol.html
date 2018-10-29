@@ -1,5 +1,5 @@
 {#if edit || settings.action}
-    <svelte:component this="{ fieldtype }" {...props} bind:value="source[settings.field]" on:change on:click />
+    <svelte:component this="{ fieldtype }" {...props} bind:value="source[settings.field]" on:change on:click on:keydown on:focus />
 {:else}
     { collect(source, settings.field) }
 {/if}

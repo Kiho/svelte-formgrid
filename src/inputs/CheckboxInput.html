@@ -1,11 +1,16 @@
 <input 
     type="checkbox"
+    ref:input
     bind:checked="value"
     class="{class}"
     on:change="fire('change', event)"
+    on:keydown 
+    on:focus 
 />
 
 <script>
+    import fieldBase from './field-base';
+
     export default {
         data() {
             return {
@@ -13,7 +18,10 @@
                 class: '',
                 value: false,
             }
-        }
+        },
+        oncreate() {
+            fieldBase.oncreate(this);
+        },
     }
 </script>
 <style>

@@ -13,6 +13,12 @@ var app = (function () {
 		return tar;
 	}
 
+	function addLoc(element, file, line, column, char) {
+		element.__svelte_meta = {
+			loc: { file, line, column, char }
+		};
+	}
+
 	function exclude(src, prop) {
 		const tar = {};
 		for (const k in src) k === prop || (tar[k] = src[k]);
@@ -141,6 +147,13 @@ var app = (function () {
 		this._state = {};
 	}
 
+	function destroyDev(detach) {
+		destroy.call(this, detach);
+		this.destroy = function() {
+			console.warn('Component was already destroyed');
+		};
+	}
+
 	function _differs(a, b) {
 		return a != a ? b == b : a !== b || ((a && typeof a === 'object') || typeof a === 'function');
 	}
@@ -231,6 +244,17 @@ var app = (function () {
 		}
 	}
 
+	function setDev(newState) {
+		if (typeof newState !== 'object') {
+			throw new Error(
+				this._debugName + '.set was called without an object of data key-values to update.'
+			);
+		}
+
+		this._checkReadOnly(newState);
+		set.call(this, newState);
+	}
+
 	function callAll(fns) {
 		while (fns && fns.length) fns.shift()();
 	}
@@ -239,12 +263,12 @@ var app = (function () {
 		this._fragment[this._fragment.i ? 'i' : 'm'](target, anchor || null);
 	}
 
-	var proto = {
-		destroy,
+	var protoDev = {
+		destroy: destroyDev,
 		get,
 		fire,
 		on,
-		set,
+		set: setDev,
 		_recompute: noop,
 		_set,
 		_mount,
@@ -277,7 +301,7 @@ var app = (function () {
 	        return Object.assign({}, { settings: null }, intialData, data);
 	    },
 	    oncreate(p) {
-	        const { uuid, settings, type } = p.get();
+	        const { uuid, dataset } = p.get();
 	        const element = p.refs.input;
 	        element.onkeyup = (e) => {
 	            if (p.get().submit) {
@@ -290,6 +314,11 @@ var app = (function () {
 	        };
 	        if (uuid) {
 	            element.setAttribute('id', uuid);
+	        }
+	        if (dataset) {
+	            for (let k in dataset) { 
+	                element.setAttribute(`data-${k}`, dataset[k]);
+	            }
 	        }
 	        p.set({ element });        
 	    },
@@ -399,6 +428,8 @@ var app = (function () {
 	        this.set({ text: current.value });
 	    }
 	}
+	const file = "src\\inputs\\MaskedInput.html";
+
 	function create_main_fragment(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
@@ -417,7 +448,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				input = createElement("input");
 				addListener(input, "input", input_input_handler);
 				addListener(input, "input", input_handler);
@@ -428,16 +459,17 @@ var app = (function () {
 				input.required = ctx.required;
 				input.pattern = ctx.pattern;
 				input.placeholder = ctx.placeholder;
+				addLoc(input, file, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, input, anchor);
 				component.refs.input = input;
 
 				input.value = ctx.text;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (!input_updating) input.value = ctx.text;
 				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control masked " + ctx.inputClass)) {
 					input.className = input_class_value;
@@ -460,7 +492,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(input);
 				}
@@ -474,9 +506,17 @@ var app = (function () {
 	}
 
 	function MaskedInput(options) {
+		this._debugName = '<MaskedInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data(), options.data);
+		if (!('inputClass' in this._state)) console.warn("<MaskedInput> was created without expected data property 'inputClass'");
+		if (!('text' in this._state)) console.warn("<MaskedInput> was created without expected data property 'text'");
+		if (!('readOnly' in this._state)) console.warn("<MaskedInput> was created without expected data property 'readOnly'");
+		if (!('required' in this._state)) console.warn("<MaskedInput> was created without expected data property 'required'");
+		if (!('pattern' in this._state)) console.warn("<MaskedInput> was created without expected data property 'pattern'");
+		if (!('placeholder' in this._state)) console.warn("<MaskedInput> was created without expected data property 'placeholder'");
 		this._intro = true;
 		this._handlers.update = [onupdate];
 
@@ -488,6 +528,7 @@ var app = (function () {
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -495,8 +536,11 @@ var app = (function () {
 		}
 	}
 
-	assign(MaskedInput.prototype, proto);
+	assign(MaskedInput.prototype, protoDev);
 	assign(MaskedInput.prototype, methods);
+
+	MaskedInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	function formatCurrency(data, alwaysShowCents = true) {
 	    var options = {
@@ -540,6 +584,8 @@ var app = (function () {
 	        this.set({ text: formatCurrency(current.value) });
 	    }
 	}
+	const file$1 = "src\\inputs\\CurrencyInput.html";
+
 	function create_main_fragment$1(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
@@ -558,7 +604,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				input = createElement("input");
 				addListener(input, "input", input_input_handler);
 				addListener(input, "blur", blur_handler);
@@ -570,16 +616,17 @@ var app = (function () {
 				input.pattern = "^(?!\\(.*[^)]$|[^(].*\\)$)\\(?\\$?(0|[1-9]\\d{0,2}(,?\\d{3})?)(\\.\\d\\d?)?\\)?$";
 				input.readOnly = ctx.readOnly;
 				input.required = ctx.required;
+				addLoc(input, file$1, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, input, anchor);
 				component.refs.input = input;
 
 				input.value = ctx.text;
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				if (!input_updating) input.value = ctx.text;
 				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
@@ -603,7 +650,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(input);
 				}
@@ -617,9 +664,17 @@ var app = (function () {
 	}
 
 	function CurrencyInput(options) {
+		this._debugName = '<CurrencyInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data$1(), options.data);
+		if (!('inputClass' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'inputClass'");
+		if (!('uuid' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'uuid'");
+		if (!('placeholder' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'placeholder'");
+		if (!('text' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'text'");
+		if (!('readOnly' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'readOnly'");
+		if (!('required' in this._state)) console.warn("<CurrencyInput> was created without expected data property 'required'");
 		this._intro = true;
 		this._handlers.update = [onupdate$1];
 
@@ -631,6 +686,7 @@ var app = (function () {
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -638,8 +694,11 @@ var app = (function () {
 		}
 	}
 
-	assign(CurrencyInput.prototype, proto);
+	assign(CurrencyInput.prototype, protoDev);
 	assign(CurrencyInput.prototype, methods$1);
+
+	CurrencyInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	/* src\inputs\SelectInput.html generated by Svelte v2.13.1 */
 
@@ -662,6 +721,8 @@ var app = (function () {
 	function oncreate$2() {
 	    fieldBase.oncreate(this);
 	}
+	const file$2 = "src\\inputs\\SelectInput.html";
+
 	function create_main_fragment$2(component, ctx) {
 		var select, select_updating = false, select_class_value;
 
@@ -684,16 +745,17 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				select = createElement("select");
 				if_block.c();
 				addListener(select, "change", select_change_handler);
 				if (!('value' in ctx)) component.root._beforecreate.push(select_change_handler);
 				addListener(select, "change", change_handler);
 				select.className = select_class_value = "form-control " + ctx.inputClass;
+				addLoc(select, file$2, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, select, anchor);
 				if_block.m(select, null);
 				component.refs.input = select;
@@ -701,7 +763,7 @@ var app = (function () {
 				selectOption(select, ctx.value);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (current_block_type === (current_block_type = select_block_type(ctx)) && if_block) {
 					if_block.p(changed, ctx);
 				} else {
@@ -717,7 +779,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(select);
 				}
@@ -735,19 +797,20 @@ var app = (function () {
 		var option, text_value = ctx.getOptionName(ctx.opt), text, option_value_value;
 
 		return {
-			c() {
+			c: function create() {
 				option = createElement("option");
 				text = createText(text_value);
 				option.__value = option_value_value = ctx.opt[ctx.optionValue];
 				option.value = option.__value;
+				addLoc(option, file$2, 3, 12, 190);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, option, anchor);
 				append(option, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.getOptionName || changed.optionList) && text_value !== (text_value = ctx.getOptionName(ctx.opt))) {
 					setData(text, text_value);
 				}
@@ -759,7 +822,7 @@ var app = (function () {
 				option.value = option.__value;
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(option);
 				}
@@ -772,19 +835,20 @@ var app = (function () {
 		var option, text_value = ctx.opt, text, option_value_value;
 
 		return {
-			c() {
+			c: function create() {
 				option = createElement("option");
 				text = createText(text_value);
 				option.__value = option_value_value = ctx.opt;
 				option.value = option.__value;
+				addLoc(option, file$2, 7, 12, 347);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, option, anchor);
 				append(option, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.optionList) && text_value !== (text_value = ctx.opt)) {
 					setData(text, text_value);
 				}
@@ -796,7 +860,7 @@ var app = (function () {
 				option.value = option.__value;
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(option);
 				}
@@ -817,7 +881,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].c();
 				}
@@ -825,7 +889,7 @@ var app = (function () {
 				each_anchor = createComment();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].m(target, anchor);
 				}
@@ -833,7 +897,7 @@ var app = (function () {
 				insert(target, each_anchor, anchor);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.optionList || changed.optionValue || changed.getOptionName) {
 					each_value = ctx.optionList;
 
@@ -856,7 +920,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				destroyEach(each_blocks, detach);
 
 				if (detach) {
@@ -879,7 +943,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].c();
 				}
@@ -887,7 +951,7 @@ var app = (function () {
 				each_anchor = createComment();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].m(target, anchor);
 				}
@@ -895,7 +959,7 @@ var app = (function () {
 				insert(target, each_anchor, anchor);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.optionList) {
 					each_value_1 = ctx.optionList;
 
@@ -918,7 +982,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				destroyEach(each_blocks, detach);
 
 				if (detach) {
@@ -945,10 +1009,18 @@ var app = (function () {
 	}
 
 	function SelectInput(options) {
+		this._debugName = '<SelectInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data$2(), options.data);
 		this._recompute({ optionList: 1 }, this._state);
+		if (!('optionList' in this._state)) console.warn("<SelectInput> was created without expected data property 'optionList'");
+		if (!('inputClass' in this._state)) console.warn("<SelectInput> was created without expected data property 'inputClass'");
+		if (!('value' in this._state)) console.warn("<SelectInput> was created without expected data property 'value'");
+
+		if (!('optionValue' in this._state)) console.warn("<SelectInput> was created without expected data property 'optionValue'");
+		if (!('getOptionName' in this._state)) console.warn("<SelectInput> was created without expected data property 'getOptionName'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$2(this, this._state);
@@ -959,6 +1031,7 @@ var app = (function () {
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -966,7 +1039,11 @@ var app = (function () {
 		}
 	}
 
-	assign(SelectInput.prototype, proto);
+	assign(SelectInput.prototype, protoDev);
+
+	SelectInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('isObjectOptions' in newState && !this._updatingReadonlyProperty) throw new Error("<SelectInput>: Cannot set read-only property 'isObjectOptions'");
+	};
 
 	SelectInput.prototype._recompute = function _recompute(changed, state) {
 		if (changed.optionList) {
@@ -981,6 +1058,8 @@ var app = (function () {
 	function oncreate$3() {
 	    fieldBase.oncreate(this);
 	}
+	const file$3 = "src\\inputs\\TextInput.html";
+
 	function create_main_fragment$3(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
@@ -994,19 +1073,30 @@ var app = (function () {
 			component.fire('change', event);
 		}
 
+		function keydown_handler(event) {
+			component.fire("keydown", event);
+		}
+
+		function focus_handler(event) {
+			component.fire("focus", event);
+		}
+
 		return {
-			c() {
+			c: function create() {
 				input = createElement("input");
 				addListener(input, "input", input_input_handler);
 				addListener(input, "change", change_handler);
+				addListener(input, "keydown", keydown_handler);
+				addListener(input, "focus", focus_handler);
 				setAttribute(input, "type", "text");
 				input.className = input_class_value = "form-control " + ctx.inputClass;
 				input.placeholder = ctx.placeholder;
 				input.readOnly = ctx.readOnly;
 				input.required = ctx.required;
+				addLoc(input, file$3, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, input, anchor);
 				component.refs.input = input;
 
@@ -1014,7 +1104,7 @@ var app = (function () {
 	    ;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (!input_updating) input.value = ctx.value
 	    ;
 				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
@@ -1034,22 +1124,31 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(input);
 				}
 
 				removeListener(input, "input", input_input_handler);
 				removeListener(input, "change", change_handler);
+				removeListener(input, "keydown", keydown_handler);
+				removeListener(input, "focus", focus_handler);
 				if (component.refs.input === input) component.refs.input = null;
 			}
 		};
 	}
 
 	function TextInput(options) {
+		this._debugName = '<TextInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data$3(), options.data);
+		if (!('inputClass' in this._state)) console.warn("<TextInput> was created without expected data property 'inputClass'");
+		if (!('placeholder' in this._state)) console.warn("<TextInput> was created without expected data property 'placeholder'");
+		if (!('value' in this._state)) console.warn("<TextInput> was created without expected data property 'value'");
+		if (!('readOnly' in this._state)) console.warn("<TextInput> was created without expected data property 'readOnly'");
+		if (!('required' in this._state)) console.warn("<TextInput> was created without expected data property 'required'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$3(this, this._state);
@@ -1060,6 +1159,7 @@ var app = (function () {
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -1067,7 +1167,10 @@ var app = (function () {
 		}
 	}
 
-	assign(TextInput.prototype, proto);
+	assign(TextInput.prototype, protoDev);
+
+	TextInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	/* src\inputs\NumberInput.html generated by Svelte v2.13.1 */
 
@@ -1076,6 +1179,8 @@ var app = (function () {
 	function oncreate$4() {
 	    fieldBase.oncreate(this);
 	}
+	const file$4 = "src\\inputs\\NumberInput.html";
+
 	function create_main_fragment$4(component, ctx) {
 		var input, input_updating = false, input_class_value;
 
@@ -1090,7 +1195,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				input = createElement("input");
 				addListener(input, "input", input_input_handler);
 				addListener(input, "change", change_handler);
@@ -1099,9 +1204,10 @@ var app = (function () {
 				input.placeholder = ctx.placeholder;
 				input.readOnly = ctx.readOnly;
 				input.required = ctx.required;
+				addLoc(input, file$4, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, input, anchor);
 				component.refs.input = input;
 
@@ -1109,7 +1215,7 @@ var app = (function () {
 	    ;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (!input_updating) input.value = ctx.value
 	    ;
 				if ((changed.inputClass) && input_class_value !== (input_class_value = "form-control " + ctx.inputClass)) {
@@ -1129,7 +1235,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(input);
 				}
@@ -1142,9 +1248,16 @@ var app = (function () {
 	}
 
 	function NumberInput(options) {
+		this._debugName = '<NumberInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data$4(), options.data);
+		if (!('inputClass' in this._state)) console.warn("<NumberInput> was created without expected data property 'inputClass'");
+		if (!('placeholder' in this._state)) console.warn("<NumberInput> was created without expected data property 'placeholder'");
+		if (!('value' in this._state)) console.warn("<NumberInput> was created without expected data property 'value'");
+		if (!('readOnly' in this._state)) console.warn("<NumberInput> was created without expected data property 'readOnly'");
+		if (!('required' in this._state)) console.warn("<NumberInput> was created without expected data property 'required'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$4(this, this._state);
@@ -1155,6 +1268,7 @@ var app = (function () {
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -1162,7 +1276,10 @@ var app = (function () {
 		}
 	}
 
-	assign(NumberInput.prototype, proto);
+	assign(NumberInput.prototype, protoDev);
+
+	NumberInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	/* src\inputs\CheckboxInput.html generated by Svelte v2.13.1 */
 
@@ -1173,6 +1290,11 @@ var app = (function () {
 	        value: false,
 	    }
 	}
+	function oncreate$5() {
+	    fieldBase.oncreate(this);
+	}
+	const file$5 = "src\\inputs\\CheckboxInput.html";
+
 	function create_main_fragment$5(component, ctx) {
 		var input;
 
@@ -1184,53 +1306,84 @@ var app = (function () {
 			component.fire('change', event);
 		}
 
+		function keydown_handler(event) {
+			component.fire("keydown", event);
+		}
+
+		function focus_handler(event) {
+			component.fire("focus", event);
+		}
+
 		return {
-			c() {
+			c: function create() {
 				input = createElement("input");
 				addListener(input, "change", input_change_handler);
 				addListener(input, "change", change_handler);
+				addListener(input, "keydown", keydown_handler);
+				addListener(input, "focus", focus_handler);
 				setAttribute(input, "type", "checkbox");
 				input.className = "" + ctx.class + " svelte-m11ft5";
+				addLoc(input, file$5, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, input, anchor);
+				component.refs.input = input;
 
 				input.checked = ctx.value;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				input.checked = ctx.value;
 				if (changed.class) {
 					input.className = "" + ctx.class + " svelte-m11ft5";
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(input);
 				}
 
 				removeListener(input, "change", input_change_handler);
 				removeListener(input, "change", change_handler);
+				removeListener(input, "keydown", keydown_handler);
+				removeListener(input, "focus", focus_handler);
+				if (component.refs.input === input) component.refs.input = null;
 			}
 		};
 	}
 
 	function CheckboxInput(options) {
+		this._debugName = '<CheckboxInput>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
+		this.refs = {};
 		this._state = assign(data$5(), options.data);
+		if (!('value' in this._state)) console.warn("<CheckboxInput> was created without expected data property 'value'");
+		if (!('class' in this._state)) console.warn("<CheckboxInput> was created without expected data property 'class'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$5(this, this._state);
 
+		this.root._oncreate.push(() => {
+			oncreate$5.call(this);
+			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
+		});
+
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
+
+			flush(this);
 		}
 	}
 
-	assign(CheckboxInput.prototype, proto);
+	assign(CheckboxInput.prototype, protoDev);
+
+	CheckboxInput.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	/* src\inputs\ActionButton.html generated by Svelte v2.13.1 */
 
@@ -1241,6 +1394,8 @@ var app = (function () {
 	        value: false,
 	    }
 	}
+	const file$6 = "src\\inputs\\ActionButton.html";
+
 	function create_main_fragment$6(component, ctx) {
 		var button, text, button_class_value;
 
@@ -1249,19 +1404,20 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				button = createElement("button");
 				text = createText(ctx.label);
 				addListener(button, "click", click_handler);
 				button.className = button_class_value = "btn btn-" + ctx.class;
+				addLoc(button, file$6, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, button, anchor);
 				append(button, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.label) {
 					setData(text, ctx.label);
 				}
@@ -1271,7 +1427,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(button);
 				}
@@ -1282,19 +1438,27 @@ var app = (function () {
 	}
 
 	function ActionButton(options) {
+		this._debugName = '<ActionButton>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this._state = assign(data$6(), options.data);
+		if (!('class' in this._state)) console.warn("<ActionButton> was created without expected data property 'class'");
+		if (!('label' in this._state)) console.warn("<ActionButton> was created without expected data property 'label'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$6(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 		}
 	}
 
-	assign(ActionButton.prototype, proto);
+	assign(ActionButton.prototype, protoDev);
+
+	ActionButton.prototype._checkReadOnly = function _checkReadOnly(newState) {
+	};
 
 	/* src\Field.html generated by Svelte v2.13.1 */
 
@@ -1322,6 +1486,8 @@ var app = (function () {
 	    };
 	    return Object.assign({}, initialData, fieldBase.fieldData());
 	}
+	const file$7 = "src\\Field.html";
+
 	function create_main_fragment$7(component, ctx) {
 		var div, label_1, text, text_1, div_1, div_2, switch_instance_updating = {}, text_2;
 
@@ -1383,7 +1549,7 @@ var app = (function () {
 		var if_block = (ctx.submit && ctx.error) && create_if_block$1(component, ctx);
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				label_1 = createElement("label");
 				text = createText(ctx.label);
@@ -1395,12 +1561,16 @@ var app = (function () {
 				if (if_block) if_block.c();
 				label_1.className = "col-4 col-form-label";
 				label_1.htmlFor = ctx.uuid;
+				addLoc(label_1, file$7, 1, 4, 34);
 				div_2.className = "form-group";
+				addLoc(div_2, file$7, 3, 8, 131);
 				div_1.className = "col-8";
+				addLoc(div_1, file$7, 2, 4, 102);
 				div.className = "form-group row";
+				addLoc(div, file$7, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				append(div, label_1);
 				append(label_1, text);
@@ -1416,7 +1586,7 @@ var app = (function () {
 				if (if_block) if_block.m(div_2, null);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				if (changed.label) {
 					setData(text, ctx.label);
@@ -1484,7 +1654,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -1500,24 +1670,25 @@ var app = (function () {
 		var div, text;
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				text = createText(ctx.message);
 				div.className = "invalid-feedback svelte-u293zm";
+				addLoc(div, file$7, 6, 12, 309);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				append(div, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.message) {
 					setData(text, ctx.message);
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -1526,14 +1697,25 @@ var app = (function () {
 	}
 
 	function Field(options) {
+		this._debugName = '<Field>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this._state = assign(data$7(), options.data);
 		this._recompute({ submit: 1, error: 1, settings: 1 }, this._state);
+		if (!('submit' in this._state)) console.warn("<Field> was created without expected data property 'submit'");
+		if (!('error' in this._state)) console.warn("<Field> was created without expected data property 'error'");
+		if (!('settings' in this._state)) console.warn("<Field> was created without expected data property 'settings'");
+		if (!('uuid' in this._state)) console.warn("<Field> was created without expected data property 'uuid'");
+
+		if (!('fieldtype' in this._state)) console.warn("<Field> was created without expected data property 'fieldtype'");
+
+		if (!('value' in this._state)) console.warn("<Field> was created without expected data property 'value'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$7(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -1541,7 +1723,13 @@ var app = (function () {
 		}
 	}
 
-	assign(Field.prototype, proto);
+	assign(Field.prototype, protoDev);
+
+	Field.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('message' in newState && !this._updatingReadonlyProperty) throw new Error("<Field>: Cannot set read-only property 'message'");
+		if ('label' in newState && !this._updatingReadonlyProperty) throw new Error("<Field>: Cannot set read-only property 'label'");
+		if ('props' in newState && !this._updatingReadonlyProperty) throw new Error("<Field>: Cannot set read-only property 'props'");
+	};
 
 	Field.prototype._recompute = function _recompute(changed, state) {
 		if (changed.submit || changed.error) {
@@ -1591,7 +1779,7 @@ var app = (function () {
 	        settings: null
 	    }
 	}
-	function oncreate$5() {
+	function oncreate$6() {
 	    fieldBase.mergeProps(this, this.get().settings);
 	}
 	function create_main_fragment$8(component, ctx) {
@@ -1625,15 +1813,15 @@ var app = (function () {
 		});
 
 		return {
-			c() {
+			c: function create() {
 				field._fragment.c();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				field._mount(target, anchor);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var field_changes = {};
 				if (changed.settings) field_changes.settings = ctx.settings;
@@ -1646,26 +1834,32 @@ var app = (function () {
 				field_updating = {};
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				field.destroy(detach);
 			}
 		};
 	}
 
 	function FormField(options) {
+		this._debugName = '<FormField>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this._state = assign(data$8(), options.data);
 		this._recompute({ settings: 1 }, this._state);
+		if (!('settings' in this._state)) console.warn("<FormField> was created without expected data property 'settings'");
+
+		if (!('value' in this._state)) console.warn("<FormField> was created without expected data property 'value'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$8(this, this._state);
 
 		this.root._oncreate.push(() => {
-			oncreate$5.call(this);
+			oncreate$6.call(this);
 			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
 		});
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -1673,7 +1867,12 @@ var app = (function () {
 		}
 	}
 
-	assign(FormField.prototype, proto);
+	assign(FormField.prototype, protoDev);
+
+	FormField.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('fieldlabel' in newState && !this._updatingReadonlyProperty) throw new Error("<FormField>: Cannot set read-only property 'fieldlabel'");
+		if ('fieldtype' in newState && !this._updatingReadonlyProperty) throw new Error("<FormField>: Cannot set read-only property 'fieldtype'");
+	};
 
 	FormField.prototype._recompute = function _recompute(changed, state) {
 		if (changed.settings) {
@@ -1707,6 +1906,8 @@ var app = (function () {
 	        settings: {}
 	    }
 	}
+	const file$9 = "src\\FormCol.html";
+
 	function create_main_fragment$9(component, ctx) {
 		var div;
 
@@ -1720,18 +1921,19 @@ var app = (function () {
 		var if_block = current_block_type && current_block_type(component, ctx);
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				if (if_block) if_block.c();
 				div.className = ctx.classes;
+				addLoc(div, file$9, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				if (if_block) if_block.m(div, null);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (current_block_type === (current_block_type = select_block_type(ctx)) && if_block) {
 					if_block.p(changed, ctx);
 				} else {
@@ -1746,7 +1948,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -1785,15 +1987,15 @@ var app = (function () {
 		});
 
 		return {
-			c() {
+			c: function create() {
 				formfield._fragment.c();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				formfield._mount(target, anchor);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var formfield_changes = {};
 				if (changed.settings) formfield_changes.settings = ctx.settings;
@@ -1805,7 +2007,7 @@ var app = (function () {
 				formfield_updating = {};
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				formfield.destroy(detach);
 			}
 		};
@@ -1816,21 +2018,21 @@ var app = (function () {
 		var text_value = ctx.source[ctx.field], text;
 
 		return {
-			c() {
+			c: function create() {
 				text = createText(text_value);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, text, anchor);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.source || changed.field) && text_value !== (text_value = ctx.source[ctx.field])) {
 					setData(text, text_value);
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(text);
 				}
@@ -1839,14 +2041,21 @@ var app = (function () {
 	}
 
 	function FormCol(options) {
+		this._debugName = '<FormCol>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this._state = assign(data$9(), options.data);
 		this._recompute({ settings: 1, source: 1 }, this._state);
+		if (!('settings' in this._state)) console.warn("<FormCol> was created without expected data property 'settings'");
+		if (!('source' in this._state)) console.warn("<FormCol> was created without expected data property 'source'");
+
+		if (!('edit' in this._state)) console.warn("<FormCol> was created without expected data property 'edit'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$9(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -1854,7 +2063,13 @@ var app = (function () {
 		}
 	}
 
-	assign(FormCol.prototype, proto);
+	assign(FormCol.prototype, protoDev);
+
+	FormCol.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('classes' in newState && !this._updatingReadonlyProperty) throw new Error("<FormCol>: Cannot set read-only property 'classes'");
+		if ('displayable' in newState && !this._updatingReadonlyProperty) throw new Error("<FormCol>: Cannot set read-only property 'displayable'");
+		if ('field' in newState && !this._updatingReadonlyProperty) throw new Error("<FormCol>: Cannot set read-only property 'field'");
+	};
 
 	FormCol.prototype._recompute = function _recompute(changed, state) {
 		if (changed.settings) {
@@ -1903,6 +2118,8 @@ var app = (function () {
 	        columns: [],
 	    }
 	}
+	const file$a = "src\\FormGrid.html";
+
 	function create_main_fragment$a(component, ctx) {
 		var form;
 
@@ -1915,16 +2132,17 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				form = createElement("form");
 
 				for (var i = 0; i < each_blocks.length; i += 1) {
 					each_blocks[i].c();
 				}
 				form.className = "form-horizontal";
+				addLoc(form, file$a, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, form, anchor);
 
 				for (var i = 0; i < each_blocks.length; i += 1) {
@@ -1934,7 +2152,7 @@ var app = (function () {
 				component.refs.form = form;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.rows || changed.class || changed.edit || changed.source) {
 					each_value = ctx.rows;
 
@@ -1957,7 +2175,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(form);
 				}
@@ -1984,7 +2202,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				if (if_block) if_block.c();
 				text = createText("\r\n    ");
 				div = createElement("div");
@@ -1993,9 +2211,10 @@ var app = (function () {
 					each_blocks[i].c();
 				}
 				div.className = div_class_value = "row " + ctx.class + " svelte-z3e38j";
+				addLoc(div, file$a, 5, 4, 153);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				if (if_block) if_block.m(target, anchor);
 				insert(target, text, anchor);
 				insert(target, div, anchor);
@@ -2005,7 +2224,7 @@ var app = (function () {
 				}
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (ctx.row.subtitle) {
 					if (if_block) {
 						if_block.p(changed, ctx);
@@ -2045,7 +2264,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (if_block) if_block.d(detach);
 				if (detach) {
 					detachNode(text);
@@ -2062,24 +2281,25 @@ var app = (function () {
 		var div, text_value = ctx.row.subtitle, text;
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				text = createText(text_value);
 				div.className = "row subtitle svelte-z3e38j";
+				addLoc(div, file$a, 3, 4, 90);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				append(div, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.rows) && text_value !== (text_value = ctx.row.subtitle)) {
 					setData(text, text_value);
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -2115,15 +2335,15 @@ var app = (function () {
 		});
 
 		return {
-			c() {
+			c: function create() {
 				formcol._fragment.c();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				formcol._mount(target, anchor);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var formcol_changes = {};
 				if (changed.rows) formcol_changes.settings = ctx.col;
@@ -2136,7 +2356,7 @@ var app = (function () {
 				formcol_updating = {};
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				formcol.destroy(detach);
 			}
 		};
@@ -2159,15 +2379,24 @@ var app = (function () {
 	}
 
 	function FormGrid(options) {
+		this._debugName = '<FormGrid>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data$a(), options.data);
 		this._recompute({ item: 1, columns: 1 }, this._state);
+		if (!('item' in this._state)) console.warn("<FormGrid> was created without expected data property 'item'");
+		if (!('columns' in this._state)) console.warn("<FormGrid> was created without expected data property 'columns'");
+
+		if (!('class' in this._state)) console.warn("<FormGrid> was created without expected data property 'class'");
+
+		if (!('edit' in this._state)) console.warn("<FormGrid> was created without expected data property 'edit'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$a(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -2175,7 +2404,12 @@ var app = (function () {
 		}
 	}
 
-	assign(FormGrid.prototype, proto);
+	assign(FormGrid.prototype, protoDev);
+
+	FormGrid.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('source' in newState && !this._updatingReadonlyProperty) throw new Error("<FormGrid>: Cannot set read-only property 'source'");
+		if ('rows' in newState && !this._updatingReadonlyProperty) throw new Error("<FormGrid>: Cannot set read-only property 'rows'");
+	};
 
 	FormGrid.prototype._recompute = function _recompute(changed, state) {
 		if (changed.item) {
@@ -2249,17 +2483,17 @@ var app = (function () {
 		var if_block = current_block_type(component, ctx);
 
 		return {
-			c() {
+			c: function create() {
 				if_block.c();
 				if_block_anchor = createComment();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				if_block.m(target, anchor);
 				insert(target, if_block_anchor, anchor);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (current_block_type === (current_block_type = select_block_type(ctx)) && if_block) {
 					if_block.p(changed, ctx);
 				} else {
@@ -2270,7 +2504,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if_block.d(detach);
 				if (detach) {
 					detachNode(if_block_anchor);
@@ -2332,14 +2566,24 @@ var app = (function () {
 		}
 
 		if (switch_instance) switch_instance.on("click", switch_instance_click);
+		function switch_instance_keydown(event) {
+			component.fire("keydown", event);
+		}
+
+		if (switch_instance) switch_instance.on("keydown", switch_instance_keydown);
+		function switch_instance_focus(event) {
+			component.fire("focus", event);
+		}
+
+		if (switch_instance) switch_instance.on("focus", switch_instance_focus);
 
 		return {
-			c() {
+			c: function create() {
 				if (switch_instance) switch_instance._fragment.c();
 				switch_instance_anchor = createComment();
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				if (switch_instance) {
 					switch_instance._mount(target, anchor);
 				}
@@ -2347,7 +2591,7 @@ var app = (function () {
 				insert(target, switch_instance_anchor, anchor);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var switch_instance_changes = changed.props ? getSpreadUpdate(switch_instance_spread_levels, [
 					ctx.props
@@ -2375,6 +2619,8 @@ var app = (function () {
 
 						switch_instance.on("change", switch_instance_change);
 						switch_instance.on("click", switch_instance_click);
+						switch_instance.on("keydown", switch_instance_keydown);
+						switch_instance.on("focus", switch_instance_focus);
 					} else {
 						switch_instance = null;
 					}
@@ -2386,7 +2632,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(switch_instance_anchor);
 				}
@@ -2401,21 +2647,21 @@ var app = (function () {
 		var text_value = collect(ctx.source, ctx.settings.field), text;
 
 		return {
-			c() {
+			c: function create() {
 				text = createText(text_value);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, text, anchor);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.source || changed.settings) && text_value !== (text_value = collect(ctx.source, ctx.settings.field))) {
 					setData(text, text_value);
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(text);
 				}
@@ -2424,14 +2670,22 @@ var app = (function () {
 	}
 
 	function DataCol(options) {
+		this._debugName = '<DataCol>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this._state = assign(data$b(), options.data);
 		this._recompute({ settings: 1 }, this._state);
+		if (!('settings' in this._state)) console.warn("<DataCol> was created without expected data property 'settings'");
+		if (!('edit' in this._state)) console.warn("<DataCol> was created without expected data property 'edit'");
+
+
+		if (!('source' in this._state)) console.warn("<DataCol> was created without expected data property 'source'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$b(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -2439,7 +2693,12 @@ var app = (function () {
 		}
 	}
 
-	assign(DataCol.prototype, proto);
+	assign(DataCol.prototype, protoDev);
+
+	DataCol.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('fieldtype' in newState && !this._updatingReadonlyProperty) throw new Error("<DataCol>: Cannot set read-only property 'fieldtype'");
+		if ('props' in newState && !this._updatingReadonlyProperty) throw new Error("<DataCol>: Cannot set read-only property 'props'");
+	};
 
 	DataCol.prototype._recompute = function _recompute(changed, state) {
 		if (changed.settings) {
@@ -2451,24 +2710,52 @@ var app = (function () {
 
 	/* src\DataGrid.html generated by Svelte v2.13.1 */
 
-	function colCount({ columns }) {
-		return (columns) ? columns.length : 0;
-	}
-
 	function data$c() {
 	    return {
 	        class: '',
 	        columns: [],
 	        edit: true,
-	        rows: []
+	        rows: [],
+	        selected: null
 	    }
+	}
+	function setRowCol(settings, i, j) {
+	    settings.dataset = { row: i, col: j };
+	    return settings;
 	}
 	var methods$2 = {
 	    actionClick(event, row, action) {
 	        event && event.preventDefault();
 	        action && action(row);
 	    },
+	    arrow (e) {
+	        const { target: node, keyCode: code} = e;
+					if (code < 37 || code > 40) return;
+
+					let i = +node.dataset.row;
+					let j = +node.dataset.col;				
+					const { rows, columns } = this.get();
+
+					if (code === 37) j = Math.max(0, j - 1);
+					if (code === 39) j = Math.min(j + 1, columns.length - 1);
+					if (code === 38) i = Math.max(0, i - 1);
+					if (code === 40) i = Math.min(i + 1, rows.length - 1);
+					
+					this.set({ selected: [ i, j ] });
+				}
 	};
+
+	function onupdate$2({ changed, current, previous }) {
+	    if (previous && changed.selected && current.selected) {
+	        let s = current.selected;
+	        const el = this.refs.table.querySelector( 
+	            `[data-row="${s[0]}"][data-col="${s[1]}"]` 
+	        );
+	        // console.log(s, el);
+	        if (el) el.focus();
+				}
+			}
+	const file$c = "src\\DataGrid.html";
 
 	function create_main_fragment$c(component, ctx) {
 		var div, table, thead, tr, text_2, tbody, table_class_value;
@@ -2490,7 +2777,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				table = createElement("table");
 				thead = createElement("thead");
@@ -2506,12 +2793,16 @@ var app = (function () {
 				for (var i = 0; i < each_1_blocks.length; i += 1) {
 					each_1_blocks[i].c();
 				}
-				setAttribute(table, "ref", "table");
+				addLoc(tr, file$c, 3, 12, 154);
+				addLoc(thead, file$c, 2, 8, 133);
+				addLoc(tbody, file$c, 12, 8, 415);
 				table.className = table_class_value = "table table-striped table-sm " + (ctx.edit ? 'table-bordered' : '');
+				addLoc(table, file$c, 1, 4, 38);
 				setStyle(div, "position", "relative");
+				addLoc(div, file$c, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				append(div, table);
 				append(table, thead);
@@ -2527,9 +2818,11 @@ var app = (function () {
 				for (var i = 0; i < each_1_blocks.length; i += 1) {
 					each_1_blocks[i].m(tbody, null);
 				}
+
+				component.refs.table = table;
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.columns) {
 					each_value = ctx.columns;
 
@@ -2577,7 +2870,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -2585,6 +2878,8 @@ var app = (function () {
 				destroyEach(each_blocks, detach);
 
 				destroyEach(each_1_blocks, detach);
+
+				if (component.refs.table === table) component.refs.table = null;
 			}
 		};
 	}
@@ -2594,18 +2889,19 @@ var app = (function () {
 		var th, text_value = ctx.column.label, text;
 
 		return {
-			c() {
+			c: function create() {
 				th = createElement("th");
 				text = createText(text_value);
 				setStyle(th, "width", (ctx.column.width ? ctx.column.width : 'auto'));
+				addLoc(th, file$c, 5, 16, 222);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, th, anchor);
 				append(th, text);
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if ((changed.columns) && text_value !== (text_value = ctx.column.label)) {
 					setData(text, text_value);
 				}
@@ -2615,7 +2911,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(th);
 				}
@@ -2623,7 +2919,7 @@ var app = (function () {
 		};
 	}
 
-	// (14:8) {#each rows as row}
+	// (14:8) {#each rows as row, i}
 	function create_each_block_1$2(component, ctx) {
 		var tr;
 
@@ -2631,51 +2927,52 @@ var app = (function () {
 
 		var each_blocks = [];
 
-		for (var i = 0; i < each_value_2.length; i += 1) {
-			each_blocks[i] = create_each_block_2(component, get_each_context_1$2(ctx, each_value_2, i));
+		for (var i_1 = 0; i_1 < each_value_2.length; i_1 += 1) {
+			each_blocks[i_1] = create_each_block_2(component, get_each_context_1$2(ctx, each_value_2, i_1));
 		}
 
 		return {
-			c() {
+			c: function create() {
 				tr = createElement("tr");
 
-				for (var i = 0; i < each_blocks.length; i += 1) {
-					each_blocks[i].c();
+				for (var i_1 = 0; i_1 < each_blocks.length; i_1 += 1) {
+					each_blocks[i_1].c();
 				}
+				addLoc(tr, file$c, 14, 12, 468);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, tr, anchor);
 
-				for (var i = 0; i < each_blocks.length; i += 1) {
-					each_blocks[i].m(tr, null);
+				for (var i_1 = 0; i_1 < each_blocks.length; i_1 += 1) {
+					each_blocks[i_1].m(tr, null);
 				}
 			},
 
-			p(changed, ctx) {
+			p: function update(changed, ctx) {
 				if (changed.edit || changed.columns || changed.rows) {
 					each_value_2 = ctx.columns;
 
-					for (var i = 0; i < each_value_2.length; i += 1) {
-						const child_ctx = get_each_context_1$2(ctx, each_value_2, i);
+					for (var i_1 = 0; i_1 < each_value_2.length; i_1 += 1) {
+						const child_ctx = get_each_context_1$2(ctx, each_value_2, i_1);
 
-						if (each_blocks[i]) {
-							each_blocks[i].p(changed, child_ctx);
+						if (each_blocks[i_1]) {
+							each_blocks[i_1].p(changed, child_ctx);
 						} else {
-							each_blocks[i] = create_each_block_2(component, child_ctx);
-							each_blocks[i].c();
-							each_blocks[i].m(tr, null);
+							each_blocks[i_1] = create_each_block_2(component, child_ctx);
+							each_blocks[i_1].c();
+							each_blocks[i_1].m(tr, null);
 						}
 					}
 
-					for (; i < each_blocks.length; i += 1) {
-						each_blocks[i].d(1);
+					for (; i_1 < each_blocks.length; i_1 += 1) {
+						each_blocks[i_1].d(1);
 					}
 					each_blocks.length = each_value_2.length;
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(tr);
 				}
@@ -2685,11 +2982,11 @@ var app = (function () {
 		};
 	}
 
-	// (16:16) {#each columns as column}
+	// (16:16) {#each columns as column, j}
 	function create_each_block_2(component, ctx) {
 		var td, datacol_updating = {}, td_class_value;
 
-		var datacol_initial_data = { settings: ctx.column, edit: ctx.edit };
+		var datacol_initial_data = { edit: ctx.edit, settings: setRowCol(ctx.column, ctx.i, ctx.j) };
 		if (ctx.row !== void 0) {
 			datacol_initial_data.source = ctx.row;
 			datacol_updating.source = true;
@@ -2701,7 +2998,7 @@ var app = (function () {
 			_bind(changed, childState) {
 				var newState = {};
 				if (!datacol_updating.source && changed.source) {
-					ctx.each_value_1[ctx.row_index] = childState.source = childState.source;
+					ctx.each_value_1[ctx.i] = childState.source = childState.source;
 
 					newState.rows = ctx.rows;
 				}
@@ -2720,25 +3017,32 @@ var app = (function () {
 		datacol.on("click", function(event) {
 			component.actionClick(event, ctx.row, ctx.column.action);
 		});
+		datacol.on("keydown", function(event) {
+			component.arrow(event);
+		});
+		datacol.on("focus", function(event) {
+			component.set({selected: [ctx.i, ctx.j] });
+		});
 
 		return {
-			c() {
+			c: function create() {
 				td = createElement("td");
 				datacol._fragment.c();
 				td.className = td_class_value = "" + (((!ctx.edit && ctx.column.action) || ctx.edit) ? 'nopadding' : '') + " " + (ctx.column.numeric ? 'numeric' : '') + " " + (ctx.column.truncate ? ' truncate' : '') + " svelte-bmd9at";
 				setStyle(td, "width", (ctx.column.width ? ctx.column.width : 'auto'));
+				addLoc(td, file$c, 16, 20, 540);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, td, anchor);
 				datacol._mount(td, null);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var datacol_changes = {};
-				if (changed.columns) datacol_changes.settings = ctx.column;
 				if (changed.edit) datacol_changes.edit = ctx.edit;
+				if (changed.columns) datacol_changes.settings = setRowCol(ctx.column, ctx.i, ctx.j);
 				if (!datacol_updating.source && changed.rows) {
 					datacol_changes.source = ctx.row;
 					datacol_updating.source = ctx.row !== void 0;
@@ -2755,7 +3059,7 @@ var app = (function () {
 				}
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(td);
 				}
@@ -2777,7 +3081,7 @@ var app = (function () {
 		const child_ctx = Object.create(ctx);
 		child_ctx.row = list[i];
 		child_ctx.each_value_1 = list;
-		child_ctx.row_index = i;
+		child_ctx.i = i;
 		return child_ctx;
 	}
 
@@ -2785,19 +3089,30 @@ var app = (function () {
 		const child_ctx = Object.create(ctx);
 		child_ctx.column = list[i];
 		child_ctx.each_value_2 = list;
-		child_ctx.column_index = i;
+		child_ctx.j = i;
 		return child_ctx;
 	}
 
 	function DataGrid(options) {
+		this._debugName = '<DataGrid>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
+		this.refs = {};
 		this._state = assign(data$c(), options.data);
-		this._recompute({ columns: 1 }, this._state);
+		if (!('edit' in this._state)) console.warn("<DataGrid> was created without expected data property 'edit'");
+		if (!('columns' in this._state)) console.warn("<DataGrid> was created without expected data property 'columns'");
+		if (!('rows' in this._state)) console.warn("<DataGrid> was created without expected data property 'rows'");
 		this._intro = true;
+		this._handlers.update = [onupdate$2];
 
 		this._fragment = create_main_fragment$c(this, this._state);
 
+		this.root._oncreate.push(() => {
+			this.fire("update", { changed: assignTrue({}, this._state), current: this._state });
+		});
+
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -2805,13 +3120,10 @@ var app = (function () {
 		}
 	}
 
-	assign(DataGrid.prototype, proto);
+	assign(DataGrid.prototype, protoDev);
 	assign(DataGrid.prototype, methods$2);
 
-	DataGrid.prototype._recompute = function _recompute(changed, state) {
-		if (changed.columns) {
-			if (this._differs(state.colCount, (state.colCount = colCount(state)))) changed.colCount = true;
-		}
+	DataGrid.prototype._checkReadOnly = function _checkReadOnly(newState) {
 	};
 
 	function mergeState(data, fieldtype) {
@@ -3021,8 +3333,10 @@ var app = (function () {
 	    }
 	};
 
+	const file$d = "src\\App.html";
+
 	function create_main_fragment$d(component, ctx) {
-		var div, textfield_updating = {}, text, datagrid_updating = {}, text_1, text_2, button, text_4, button_1, text_6, button_2;
+		var div, textfield_updating = {}, text, datagrid_updating = {}, text_1, text_2, button, text_3, text_4, button_1, text_5, text_6, button_2, text_7;
 
 		var textfield_initial_data = {
 		 	label: "Indivisual TextField",
@@ -3107,7 +3421,7 @@ var app = (function () {
 		}
 
 		return {
-			c() {
+			c: function create() {
 				div = createElement("div");
 				textfield._fragment.c();
 				text = createText("\r\n    ");
@@ -3116,23 +3430,27 @@ var app = (function () {
 				formgrid._fragment.c();
 				text_2 = createText("\r\n    ");
 				button = createElement("button");
-				button.textContent = "Previous";
+				text_3 = createText("Previous");
 				text_4 = createText("\r\n    ");
 				button_1 = createElement("button");
-				button_1.textContent = "Next";
+				text_5 = createText("Next");
 				text_6 = createText("\r\n    ");
 				button_2 = createElement("button");
-				button_2.textContent = "Save";
+				text_7 = createText("Save");
 				addListener(button, "click", click_handler);
 				setAttribute(button, "color", "primary");
+				addLoc(button, file$d, 4, 4, 259);
 				addListener(button_1, "click", click_handler_1);
 				setAttribute(button_1, "color", "primary");
+				addLoc(button_1, file$d, 5, 4, 328);
 				addListener(button_2, "click", click_handler_2);
 				setAttribute(button_2, "color", "primary");
+				addLoc(button_2, file$d, 6, 4, 389);
 				div.className = "container-fluid";
+				addLoc(div, file$d, 0, 0, 0);
 			},
 
-			m(target, anchor) {
+			m: function mount(target, anchor) {
 				insert(target, div, anchor);
 				textfield._mount(div, null);
 				append(div, text);
@@ -3141,13 +3459,16 @@ var app = (function () {
 				formgrid._mount(div, null);
 				append(div, text_2);
 				append(div, button);
+				append(button, text_3);
 				append(div, text_4);
 				append(div, button_1);
+				append(button_1, text_5);
 				append(div, text_6);
 				append(div, button_2);
+				append(button_2, text_7);
 			},
 
-			p(changed, _ctx) {
+			p: function update(changed, _ctx) {
 				ctx = _ctx;
 				var textfield_changes = {};
 				if (!textfield_updating.value && changed.text) {
@@ -3175,7 +3496,7 @@ var app = (function () {
 				formgrid._set(formgrid_changes);
 			},
 
-			d(detach) {
+			d: function destroy$$1(detach) {
 				if (detach) {
 					detachNode(div);
 				}
@@ -3192,15 +3513,23 @@ var app = (function () {
 	}
 
 	function App(options) {
+		this._debugName = '<App>';
+		if (!options || (!options.target && !options.root)) throw new Error("'target' is a required option");
 		init(this, options);
 		this.refs = {};
 		this._state = assign(data_1(), options.data);
 		this._recompute({ index: 1, rows: 1 }, this._state);
+		if (!('index' in this._state)) console.warn("<App> was created without expected data property 'index'");
+		if (!('rows' in this._state)) console.warn("<App> was created without expected data property 'rows'");
+		if (!('text' in this._state)) console.warn("<App> was created without expected data property 'text'");
+		if (!('columndata' in this._state)) console.warn("<App> was created without expected data property 'columndata'");
+		if (!('fielddata' in this._state)) console.warn("<App> was created without expected data property 'fielddata'");
 		this._intro = true;
 
 		this._fragment = create_main_fragment$d(this, this._state);
 
 		if (options.target) {
+			if (options.hydrate) throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
 			this._fragment.c();
 			this._mount(options.target, options.anchor);
 
@@ -3208,8 +3537,12 @@ var app = (function () {
 		}
 	}
 
-	assign(App.prototype, proto);
+	assign(App.prototype, protoDev);
 	assign(App.prototype, methods$3);
+
+	App.prototype._checkReadOnly = function _checkReadOnly(newState) {
+		if ('item' in newState && !this._updatingReadonlyProperty) throw new Error("<App>: Cannot set read-only property 'item'");
+	};
 
 	App.prototype._recompute = function _recompute(changed, state) {
 		if (changed.index || changed.rows) {
