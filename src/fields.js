@@ -2,7 +2,7 @@ import Field from './Field.html';
 import { TextInput, NumberInput, MaskedInput, CurrencyInput, SelectInput } from './inputs';
 
 function mergeState(data, fieldtype) {
-	return Object.assign({}, data, { settings: data }, { fieldtype });
+	return Object.assign({}, data, { settings: data, withSettings: true }, { fieldtype });
 }
 
 export const TextField = class extends Field {
